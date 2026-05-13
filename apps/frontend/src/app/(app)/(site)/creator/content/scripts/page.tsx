@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { SkeletonList } from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
 
@@ -332,7 +333,12 @@ const TONES = ['educational', 'entertaining', 'inspirational', 'promotional'] as
 const CONTENT_TYPES = ['reel', 'post', 'story', 'carousel'] as const;
 
 function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initialPrompt?: string }) {
-  const fetch = useFetch();
+  // Streaming NDJSON via window.fetch directly; customFetch is only used for
+  // the small JSON approve endpoint below. Mixing useFetch (which wraps every
+  // call with credentials/headers/cache normalization) with a streaming POST
+  // bit us once already — keep them separate.
+  const apiFetch = useFetch();
+  const { backendUrl } = useVariables();
   const [prompt, setPrompt] = useState(initialPrompt ?? '');
   useEffect(() => {
     if (initialPrompt) setPrompt(initialPrompt);
@@ -358,7 +364,12 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
   const abortRef = useRef<AbortController | null>(null);
 
   const start = async () => {
-    if (!prompt.trim()) return;
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      setError('Please describe what you want to create before running the pipeline.');
+      setPhase('error');
+      return;
+    }
     setPhase('running');
     setError(null);
     setOutputs({});
@@ -379,13 +390,15 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
     abortRef.current = controller;
 
     try {
-      // useFetch prepends the backend URL — pass a relative path. (Earlier
-      // version concatenated backendUrl manually, which double-prepended once
-      // we started using useFetch in this component.)
-      const res = await fetch(`/creator/scripts/generate`, {
+      const payload = { prompt: trimmedPrompt, contentType, tone };
+      // Raw window.fetch on purpose — customFetch is for plain JSON calls and
+      // doesn't play nicely with streaming response bodies. Build the absolute
+      // URL once from backendUrl so there's no double-prefix ambiguity.
+      const res = await window.fetch(`${backendUrl}/creator/scripts/generate`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: prompt.trim(), contentType, tone }),
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
 
@@ -469,7 +482,7 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
     if (!scriptId || approving) return;
     setApproving(true);
     try {
-      const res = await fetch(`/creator/scripts/${scriptId}/approve`, {
+      const res = await apiFetch(`/creator/scripts/${scriptId}/approve`, {
         method: 'POST',
       });
       if (!res.ok) {
