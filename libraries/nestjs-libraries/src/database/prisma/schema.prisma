@@ -43,6 +43,19 @@ model Organization {
   webhooks            Webhooks[]
   oauthApp            OAuthApp[]
   oauthAuthorizations OAuthAuthorization[]
+  competitors         Competitor[]
+  scripts             Script[]
+  influencers         Influencer[]
+  deals               Deal[]
+  dealActivities      DealActivity[]
+  contracts           Contract[]
+  brandCommercials    BrandCommercial[]
+  payments            Payment[]
+  paymentReminders    PaymentReminder[]
+  emailTemplates      EmailTemplate[]
+  scheduledPosts      ScheduledPost[]
+  contentPieces       ContentPiece[]
+  rateCard            RateCard?
 
   @@index([apiKey])
   @@index([streakSince])
@@ -113,6 +126,8 @@ model User {
   sendFailureEmails     Boolean              @default(true)
   sendStreakEmails      Boolean              @default(true)
   oauthAuthorizations   OAuthAuthorization[]
+  scripts               Script[]
+  userMode              UserMode             @default(MANAGER)
 
   @@unique([email, providerName])
   @@index([lastReadNotifications])
@@ -932,6 +947,11 @@ enum Role {
   USER
 }
 
+enum UserMode {
+  CREATOR
+  MANAGER
+}
+
 enum APPROVED_SUBMIT_FOR_ORDER {
   NO
   WAITING_CONFIRMATION
@@ -956,4 +976,357 @@ model Announcement {
   description String
   color       AnnouncementColor @default(INFO)
   createdAt   DateTime          @default(now())
+}
+
+// ============================================================================
+// os-creator domain models (Creator + Manager modes)
+// ============================================================================
+
+model Competitor {
+  id             String       @id @default(uuid())
+  organizationId String
+  handle         String
+  platform       String       @default("instagram")
+  followers      Int?
+  engagement     Float?
+  growth30d      Float?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, handle, platform])
+  @@index([organizationId])
+}
+
+enum ScriptStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  REJECTED
+}
+
+model Script {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  title          String
+  format         String       @default("Reel")
+  prompt         String?
+  body           String
+  feedback       String?
+  status         ScriptStatus @default(DRAFT)
+  scheduledAt    DateTime?
+  publishedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
+  contentPieces  ContentPiece[]
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([status])
+}
+
+model Influencer {
+  id             String            @id @default(uuid())
+  organizationId String
+  name           String
+  handle         String?
+  platform       String            @default("instagram")
+  followers      Int?
+  engagement     Float?
+  email          String?
+  phone          String?
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  deals          Deal[]
+  commercials    BrandCommercial[]
+  contracts      Contract[]
+  scheduledPosts ScheduledPost[]
+
+  @@index([organizationId])
+}
+
+enum DealStage {
+  LEAD
+  PROPOSAL_SENT
+  NEGOTIATING
+  CONTRACT
+  PAYMENT
+  COMPLETED
+}
+
+model Deal {
+  id             String            @id @default(uuid())
+  organizationId String
+  influencerId   String
+  brand          String
+  offer          Decimal           @db.Decimal(12, 2)
+  floor          Decimal?          @db.Decimal(12, 2)
+  ceiling        Decimal?          @db.Decimal(12, 2)
+  deadline       DateTime?
+  stage          DealStage         @default(LEAD)
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  influencer     Influencer        @relation(fields: [influencerId], references: [id])
+  commercials    BrandCommercial[]
+  contracts      Contract[]
+  activities     DealActivity[]
+
+  @@index([organizationId])
+  @@index([influencerId])
+  @@index([stage])
+}
+
+enum DealActivityKind {
+  NOTE
+  STAGE_CHANGE
+  EMAIL_SENT
+  EMAIL_RECEIVED
+  OFFER_CHANGE
+  CALL_LOGGED
+  DOCUMENT
+}
+
+model DealActivity {
+  id             String           @id @default(uuid())
+  organizationId String
+  dealId         String
+  kind           DealActivityKind @default(NOTE)
+  body           String
+  meta           Json?
+  authorName     String?
+  createdAt      DateTime         @default(now())
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  deal           Deal             @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([dealId])
+  @@index([createdAt])
+}
+
+enum ContractStatus {
+  DRAFT
+  SENT
+  SIGNED
+  EXPIRED
+}
+
+model Contract {
+  id             String         @id @default(uuid())
+  organizationId String
+  influencerId   String?
+  dealId         String?
+  templateName   String
+  brand          String
+  status         ContractStatus @default(DRAFT)
+  sentAt         DateTime?
+  signedAt       DateTime?
+  expiresAt      DateTime?
+  documentUrl    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  influencer     Influencer?    @relation(fields: [influencerId], references: [id])
+  deal           Deal?          @relation(fields: [dealId], references: [id])
+
+  @@index([organizationId])
+  @@index([dealId])
+  @@index([influencerId])
+}
+
+enum PaymentStatus {
+  PENDING
+  INVOICED
+  PAID
+  OVERDUE
+}
+
+model BrandCommercial {
+  id             String        @id @default(uuid())
+  organizationId String
+  influencerId   String
+  dealId         String?
+  brand          String
+  description    String?
+  amount         Decimal       @db.Decimal(12, 2)
+  currency       String        @default("USD")
+  dueAt          DateTime?
+  invoicedAt     DateTime?
+  paidAt         DateTime?
+  paymentStatus  PaymentStatus @default(PENDING)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+  influencer     Influencer    @relation(fields: [influencerId], references: [id])
+  deal           Deal?         @relation(fields: [dealId], references: [id])
+  payments       Payment[]
+  reminders      PaymentReminder[]
+
+  @@index([organizationId])
+  @@index([influencerId])
+  @@index([paymentStatus])
+}
+
+model Payment {
+  id                String          @id @default(uuid())
+  organizationId    String
+  brandCommercialId String
+  amount            Decimal         @db.Decimal(12, 2)
+  currency          String          @default("USD")
+  paidAt            DateTime?
+  method            String?
+  reference         String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  organization      Organization    @relation(fields: [organizationId], references: [id])
+  brandCommercial   BrandCommercial @relation(fields: [brandCommercialId], references: [id])
+
+  @@index([organizationId])
+  @@index([brandCommercialId])
+}
+
+enum PaymentReminderChannel {
+  EMAIL
+  IN_APP
+}
+
+model PaymentReminder {
+  id                String                 @id @default(uuid())
+  organizationId    String
+  brandCommercialId String
+  channel           PaymentReminderChannel @default(EMAIL)
+  subject           String?
+  body              String?
+  sentAt            DateTime               @default(now())
+  organization      Organization           @relation(fields: [organizationId], references: [id])
+  brandCommercial   BrandCommercial        @relation(fields: [brandCommercialId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([brandCommercialId])
+}
+
+enum EmailTemplateKind {
+  INTERESTED
+  NOT_INTERESTED
+  COUNTER_OFFER
+  FOLLOW_UP
+  PAYMENT_REMINDER
+  CUSTOM
+}
+
+model EmailTemplate {
+  id             String            @id @default(uuid())
+  organizationId String
+  name           String
+  kind           EmailTemplateKind @default(CUSTOM)
+  subject        String
+  body           String
+  isDefault      Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([kind])
+}
+
+enum ContentPieceStatus {
+  IDEA
+  FILMING
+  EDITING
+  READY
+  SCHEDULED
+  PUBLISHED
+}
+
+model ContentPiece {
+  id             String             @id @default(uuid())
+  organizationId String
+  scriptId       String?
+  title          String
+  format         String             @default("Reel")
+  status         ContentPieceStatus @default(IDEA)
+  hook           String?
+  body           String?
+  cta            String?
+  caption        String?
+  hashtags       String[]
+  checklist      Json?
+  mediaUrl       String?
+  thumbnailUrl   String?
+  approvedAt     DateTime?
+  filmedAt       DateTime?
+  editedAt       DateTime?
+  readyAt        DateTime?
+  scheduledAt    DateTime?
+  publishedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  script         Script?            @relation(fields: [scriptId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([scriptId])
+}
+
+model RateCard {
+  id             String       @id @default(uuid())
+  organizationId String       @unique
+  reelRate       Decimal?     @db.Decimal(12, 2)
+  storyRate      Decimal?     @db.Decimal(12, 2)
+  carouselRate   Decimal?     @db.Decimal(12, 2)
+  ugcRate        Decimal?     @db.Decimal(12, 2)
+  brandIntegRate Decimal?     @db.Decimal(12, 2)
+  exclusivityRate Decimal?    @db.Decimal(12, 2)
+  currency       String       @default("USD")
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+}
+
+enum ScheduledPostStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+enum ScheduledPostKind {
+  IMAGE
+  CAROUSEL
+  REEL
+  STORY
+}
+
+model ScheduledPost {
+  id             String              @id @default(uuid())
+  organizationId String
+  influencerId   String
+  caption        String
+  kind           ScheduledPostKind   @default(IMAGE)
+  platforms      String[]
+  scheduledAt    DateTime
+  publishedAt    DateTime?
+  status         ScheduledPostStatus @default(SCHEDULED)
+  error          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  influencer     Influencer          @relation(fields: [influencerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([influencerId])
+  @@index([scheduledAt])
+  @@index([status])
 }

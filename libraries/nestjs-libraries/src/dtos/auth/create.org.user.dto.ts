@@ -1,14 +1,20 @@
 import {
   IsDefined,
   IsEmail,
+  IsIn,
+  IsOptional,
   IsString,
   MaxLength,
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { Provider } from '@prisma/client';
+import { Provider, UserMode } from '@prisma/client';
 
 export class CreateOrgUserDto {
+  @IsOptional()
+  @IsIn(['CREATOR', 'MANAGER'])
+  userMode?: UserMode;
+
   @IsString()
   @MinLength(3)
   @MaxLength(64)

@@ -86,7 +86,10 @@ function LayoutContextInner(params: { children: ReactNode }) {
           setCookie('showorg', '', -10);
           setCookie('impersonate', '', -10);
         }
-        window.location.href = '/';
+        // Avoid bounce loop: only redirect if we're not already on /auth.
+        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/auth')) {
+          window.location.href = '/auth/login';
+        }
       }
       if (response.status === 406) {
         if (

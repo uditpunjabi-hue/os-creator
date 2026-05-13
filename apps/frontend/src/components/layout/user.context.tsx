@@ -13,6 +13,7 @@ export const UserContext = createContext<
       tier: PricingInnerInterface;
       publicApi: string;
       role: 'USER' | 'ADMIN' | 'SUPERADMIN';
+      userMode: 'CREATOR' | 'MANAGER';
       totalChannels: number;
       isLifetime?: boolean;
       impersonate: boolean;

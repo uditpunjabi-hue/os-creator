@@ -1,11 +1,10 @@
 export const dynamic = 'force-dynamic';
-import { Login } from '@gitroom/frontend/components/auth/login';
+import { IlluminatiAuth } from '@gitroom/frontend/components/auth/illuminati.auth';
 import { Metadata } from 'next';
-import { isGeneralServerSide } from '@gitroom/helpers/utils/is.general.server.side';
 export const metadata: Metadata = {
-  title: `${isGeneralServerSide() ? 'Postiz' : 'Gitroom'} Login`,
+  title: `Illuminati Login`,
   description: '',
 };
 export default async function Auth() {
-  return <Login />;
+  return <IlluminatiAuth />;
 }

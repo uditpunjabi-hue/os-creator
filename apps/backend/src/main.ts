@@ -47,7 +47,15 @@ async function start() {
     },
   });
 
-  await startMcp(app);
+  try {
+    await startMcp(app);
+  } catch (err) {
+    Logger.warn(
+      'startMcp failed — continuing without MCP/chat memory: ' +
+        ((err as Error)?.message || String(err)),
+      'Bootstrap'
+    );
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({

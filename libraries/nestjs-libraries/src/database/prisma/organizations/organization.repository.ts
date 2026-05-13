@@ -284,6 +284,7 @@ export class OrganizationRepository {
                 timezone: 0,
                 ip,
                 agent: userAgent,
+                ...(body.userMode ? { userMode: body.userMode } : {}),
               },
             },
           },

@@ -6,6 +6,7 @@ const nextConfig = {
   experimental: {
     proxyTimeout: 90_000,
   },
+  devIndicators: false,
   // Document-Policy header for browser profiling
   async headers() {
     return [

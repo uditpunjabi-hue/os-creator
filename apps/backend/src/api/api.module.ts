@@ -38,6 +38,25 @@ import { ApprovedAppsController } from '@gitroom/backend/api/routes/approved-app
 import { OAuthController, OAuthAuthorizedController } from '@gitroom/backend/api/routes/oauth.controller';
 import { AnnouncementsController } from '@gitroom/backend/api/routes/announcements.controller';
 import { AdminController } from '@gitroom/backend/api/routes/admin.controller';
+import { DealsController } from '@gitroom/backend/api/routes/manager/deals.controller';
+import { InfluencersController } from '@gitroom/backend/api/routes/manager/influencers.controller';
+import { PaymentsController } from '@gitroom/backend/api/routes/manager/payments.controller';
+import { ContractsController } from '@gitroom/backend/api/routes/manager/contracts.controller';
+import { InboxController } from '@gitroom/backend/api/routes/manager/inbox.controller';
+import { ScheduleController } from '@gitroom/backend/api/routes/manager/schedule.controller';
+import { CreatorScriptsController } from '@gitroom/backend/api/routes/creator/scripts.controller';
+import {
+  EMAIL_PROVIDER_TOKEN,
+  MockEmailProvider,
+} from '@gitroom/backend/services/providers/email.provider';
+import {
+  CALENDAR_PROVIDER_TOKEN,
+  MockCalendarProvider,
+} from '@gitroom/backend/services/providers/calendar.provider';
+import {
+  PUBLISHING_PROVIDER_TOKEN,
+  MockPublishingProvider,
+} from '@gitroom/backend/services/providers/publishing.provider';
 import { AuthProviderManager } from '@gitroom/backend/services/auth/providers/providers.manager';
 import { GithubProvider } from '@gitroom/backend/services/auth/providers/github.provider';
 import { GoogleProvider } from '@gitroom/backend/services/auth/providers/google.provider';
@@ -65,6 +84,13 @@ const authenticatedController = [
   OAuthAuthorizedController,
   AnnouncementsController,
   AdminController,
+  DealsController,
+  InfluencersController,
+  PaymentsController,
+  ContractsController,
+  InboxController,
+  ScheduleController,
+  CreatorScriptsController,
 ];
 @Module({
   imports: [UploadModule],
@@ -98,6 +124,9 @@ const authenticatedController = [
     FarcasterProvider,
     WalletProvider,
     OauthProvider,
+    { provide: EMAIL_PROVIDER_TOKEN, useClass: MockEmailProvider },
+    { provide: CALENDAR_PROVIDER_TOKEN, useClass: MockCalendarProvider },
+    { provide: PUBLISHING_PROVIDER_TOKEN, useClass: MockPublishingProvider },
   ],
   get exports() {
     return [...this.imports, ...this.providers];

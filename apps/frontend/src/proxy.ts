@@ -88,46 +88,10 @@ export async function proxy(request: NextRequest) {
 
   const org = nextUrl.searchParams.get('org');
   const url = new URL(nextUrl).search;
-  if (!nextUrl.pathname.startsWith('/auth') && !authCookie) {
-    const providers = ['google', 'settings'];
-    const findIndex = providers.find((p) => nextUrl.href.indexOf(p) > -1);
-    const additional = !findIndex
-      ? ''
-      : (url.indexOf('?') > -1 ? '&' : '?') +
-        `provider=${(findIndex === 'settings'
-          ? process.env.POSTIZ_GENERIC_OAUTH
-            ? 'generic'
-            : 'github'
-          : findIndex
-        ).toUpperCase()}`;
-    return NextResponse.redirect(
-      new URL(`/auth${url}${additional}`, nextUrl.href)
-    );
-  }
 
-  // If the url is /auth and the cookie exists, redirect to /
-  if (nextUrl.pathname.startsWith('/auth') && authCookie) {
-    return NextResponse.redirect(new URL(`/${url}`, nextUrl.href));
-  }
-  if (nextUrl.pathname.startsWith('/auth') && !authCookie) {
-    if (org) {
-      const redirect = NextResponse.redirect(new URL(`/`, nextUrl.href));
-      redirect.cookies.set('org', org, {
-        ...(!process.env.NOT_SECURED
-          ? {
-              path: '/',
-              secure: true,
-              httpOnly: true,
-              sameSite: false,
-              domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
-            }
-          : {}),
-        expires: new Date(Date.now() + 15 * 60 * 1000),
-      });
-      return redirect;
-    }
-    return topResponse;
-  }
+  // /auth/* is now the canonical entry: render the Illuminati OAuth landing.
+  // (Previously this proxy short-circuited all /auth visits to / for a dev
+  // hardcoded-user bypass — removed so the new login flow is reachable.)
   try {
     if (org) {
       const { id } = await (
@@ -158,12 +122,7 @@ export async function proxy(request: NextRequest) {
       return redirect;
     }
     if (nextUrl.pathname === '/') {
-      return NextResponse.redirect(
-        new URL(
-          !!process.env.IS_GENERAL ? '/launches' : `/analytics`,
-          nextUrl.href
-        )
-      );
+      return NextResponse.redirect(new URL(`/home`, nextUrl.href));
     }
 
     return topResponse;

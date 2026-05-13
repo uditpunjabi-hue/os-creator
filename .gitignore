@@ -5,6 +5,10 @@ dist
 tmp
 /out-tsc
 .env
+
+# Claude Code local state
+.claude/
+
 # dependencies
 node_modules
 

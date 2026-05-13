@@ -10,6 +10,9 @@
     "node": ">=22.12.0 <23.0.0"
   },
   "packageManager": "pnpm@10.6.1",
+  "prisma": {
+    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} libraries/nestjs-libraries/src/database/prisma/seed.ts"
+  },
   "scripts": {
     "dev": "pnpm run --filter ./apps/extension --filter ./apps/orchestrator --filter ./apps/backend --filter ./apps/frontend --parallel dev",
     "dev-backend": "pnpm run --filter ./apps/backend --filter ./apps/frontend --parallel dev",
@@ -152,8 +155,15 @@
     "chart.js": "^4.4.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "class-validator-jsonschema": "^5.1.0",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.0",
+    "lucide-react": "^0.460.0",
+    "tailwind-merge": "^2.5.5",
+    "tailwindcss-animate": "^1.0.7",
     "compression": "^1.8.1",
     "concat-stream": "^2.0.0",
     "cookie-parser": "^1.4.7",

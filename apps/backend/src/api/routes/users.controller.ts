@@ -80,6 +80,8 @@ export class UsersController {
       // @ts-ignore
       tier: organization?.subscription?.subscriptionTier || (!process.env.STRIPE_PUBLISHABLE_KEY ? 'ULTIMATE' : 'FREE'),
       // @ts-ignore
+      userMode: (user as any).userMode || 'CREATOR',
+      // @ts-ignore
       role: organization?.users[0]?.role,
       // @ts-ignore
       isLifetime: !!organization?.subscription?.isLifetime,

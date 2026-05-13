@@ -1,7 +1,8 @@
 'use client';
 
-import React, { ReactNode, useCallback } from 'react';
-import { Logo } from '@gitroom/frontend/components/new-layout/logo';
+import React, { ReactNode, useCallback, useState } from 'react';
+import { AppSidebar } from '@gitroom/frontend/components/shadcn/app-sidebar';
+import { BottomNav } from '@gitroom/frontend/components/shadcn/bottom-nav';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 const ModeComponent = dynamic(
   () => import('@gitroom/frontend/components/layout/mode.component'),
@@ -32,15 +33,15 @@ import { MantineWrapper } from '@gitroom/react/helpers/mantine.wrapper';
 import { Impersonate } from '@gitroom/frontend/components/layout/impersonate';
 import { AnnouncementBanner } from '@gitroom/frontend/components/layout/announcement.banner';
 import { Title } from '@gitroom/frontend/components/layout/title';
-import { TopMenu } from '@gitroom/frontend/components/layout/top.menu';
 import { LanguageComponent } from '@gitroom/frontend/components/layout/language.component';
 import { ChromeExtensionComponent } from '@gitroom/frontend/components/layout/chrome.extension.component';
-import NotificationComponent from '@gitroom/frontend/components/notifications/notification.component';
 import { OrganizationSelector } from '@gitroom/frontend/components/layout/organization.selector';
 import { StreakComponent } from '@gitroom/frontend/components/layout/streak.component';
 import { PreConditionComponent } from '@gitroom/frontend/components/layout/pre-condition.component';
 import { AttachToFeedbackIcon } from '@gitroom/frontend/components/new-layout/sentry.feedback.component';
 import { FirstBillingComponent } from '@gitroom/frontend/components/billing/first.billing.component';
+import { ProductProvider } from '@gitroom/frontend/components/layout/product.context';
+import { ProductSwitcher } from '@gitroom/frontend/components/layout/product.switcher';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500', '700'],
@@ -53,23 +54,44 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
 
   const { backendUrl, billingEnabled, isGeneral } = useVariables();
 
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Feedback icon component attaches Sentry feedback to a top-bar icon when DSN is present
   const searchParams = useSearchParams();
   const load = useCallback(async (path: string) => {
     return await (await fetch(path)).json();
   }, []);
-  const { data: user, mutate } = useSWR('/user/self', load, {
+  const { data: user, error: userError, mutate } = useSWR('/user/self', load, {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
     revalidateIfStale: false,
     refreshWhenOffline: false,
     refreshWhenHidden: false,
+    shouldRetryOnError: true,
+    errorRetryInterval: 2000,
   });
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <div className="flex min-h-screen w-screen items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-purple-200 border-t-purple-600" />
+          <div className="text-sm text-gray-500">
+            {userError ? 'Waiting for the API…' : 'Loading workspace…'}
+          </div>
+          {userError && (
+            <div className="text-xs text-gray-400">
+              Backend at <code className="rounded bg-gray-100 px-1">{backendUrl}</code> is not
+              responding yet — will retry automatically.
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <ContextWrapper user={user}>
+     <ProductProvider>
       <CopilotKit
         credentials="include"
         runtimeUrl={backendUrl + '/copilot/chat'}
@@ -88,61 +110,63 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
             <ContinueProvider />
             <div
               className={clsx(
-                'flex flex-col min-h-screen min-w-screen text-newTextColor p-[12px]',
+                'flex min-h-screen w-screen flex-col bg-white text-gray-900',
                 jakartaSans.className
               )}
             >
-              <div>{user?.admin ? <Impersonate /> : <div />}</div>
+              {user?.admin && <Impersonate />}
               {user.tier === 'FREE' && isGeneral && billingEnabled ? (
                 <FirstBillingComponent />
               ) : (
                 <>
                   <AnnouncementBanner />
-                  <div className="flex-1 flex gap-[8px]">
+                  <div className="flex flex-1">
                     <Support />
-                    <div className="flex flex-col bg-newBgColorInner w-[80px] rounded-[12px]">
-                      <div
-                        id="left-menu"
-                        className={clsx(
-                          'fixed h-full w-[64px] start-[17px] flex flex-1 top-0',
-                          user?.admin && 'pt-[60px] max-h-[1000px]:w-[500px]'
-                        )}
-                      >
-                        <div className="flex flex-col h-full gap-[32px] flex-1 py-[12px]">
-                          <Logo />
-                          <TopMenu />
-                        </div>
-                      </div>
+                    <div className="hidden lg:flex">
+                      <AppSidebar
+                        collapsed={sidebarCollapsed}
+                        onToggle={() => setSidebarCollapsed((v) => !v)}
+                      />
                     </div>
-                    <div className="flex-1 bg-newBgLineColor rounded-[12px] overflow-hidden flex flex-col gap-[1px] blurMe">
-                      <div className="flex bg-newBgColorInner h-[80px] px-[20px] items-center">
-                        <div className="text-[24px] font-[600] flex flex-1">
-                          <Title />
+                    <div className="flex min-w-0 flex-1 flex-col bg-white">
+                      <div className="flex h-14 items-center gap-3 border-b border-gray-200 bg-white px-4 lg:h-16 lg:px-6">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="hidden truncate text-base font-semibold text-gray-900 sm:block lg:text-lg">
+                            <Title />
+                          </div>
+                          <ProductSwitcher />
                         </div>
-                        <div className="flex gap-[20px] text-textItemBlur">
+                        <div className="hidden items-center gap-4 text-gray-500 lg:flex">
                           <StreakComponent />
-                          <div className="w-[1px] h-[20px] bg-blockSeparator" />
+                          <div className="h-5 w-px bg-gray-200" />
                           <OrganizationSelector />
-                          <div className="hover:text-newTextColor">
+                          <div className="hover:text-gray-900">
                             <ModeComponent />
                           </div>
-                          <div className="w-[1px] h-[20px] bg-blockSeparator" />
+                          <div className="h-5 w-px bg-gray-200" />
                           <LanguageComponent />
                           <ChromeExtensionComponent />
-                          <div className="w-[1px] h-[20px] bg-blockSeparator" />
+                          <div className="h-5 w-px bg-gray-200" />
                           <AttachToFeedbackIcon />
-                          <NotificationComponent />
                         </div>
+                        <div className="flex items-center gap-2 text-gray-500 lg:hidden" />
                       </div>
-                      <div className="flex flex-1 gap-[1px]">{children}</div>
+                      <div
+                        className="flex-1 overflow-y-auto bg-gray-50 pb-[88px] lg:pb-0"
+                        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 88px)' }}
+                      >
+                        {children}
+                      </div>
                     </div>
                   </div>
+                  <BottomNav />
                 </>
               )}
             </div>
           </CheckPayment>
         </MantineWrapper>
       </CopilotKit>
+     </ProductProvider>
     </ContextWrapper>
   );
 };

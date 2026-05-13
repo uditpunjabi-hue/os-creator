@@ -42,6 +42,14 @@ import { AnnouncementsRepository } from '@gitroom/nestjs-libraries/database/pris
 import { AnnouncementsService } from '@gitroom/nestjs-libraries/database/prisma/announcements/announcements.service';
 import { ErrorsRepository } from '@gitroom/nestjs-libraries/database/prisma/errors/errors.repository';
 import { ErrorsService } from '@gitroom/nestjs-libraries/database/prisma/errors/errors.service';
+import { DealRepository } from '@gitroom/nestjs-libraries/database/prisma/manager/deal.repository';
+import { DealService } from '@gitroom/nestjs-libraries/database/prisma/manager/deal.service';
+import { InfluencerRepository } from '@gitroom/nestjs-libraries/database/prisma/manager/influencer.repository';
+import { InfluencerService } from '@gitroom/nestjs-libraries/database/prisma/manager/influencer.service';
+import { PaymentRepository } from '@gitroom/nestjs-libraries/database/prisma/manager/payment.repository';
+import { PaymentService } from '@gitroom/nestjs-libraries/database/prisma/manager/payment.service';
+import { ContractRepository } from '@gitroom/nestjs-libraries/database/prisma/manager/contract.repository';
+import { ContractService } from '@gitroom/nestjs-libraries/database/prisma/manager/contract.service';
 
 @Global()
 @Module({
@@ -93,6 +101,14 @@ import { ErrorsService } from '@gitroom/nestjs-libraries/database/prisma/errors/
     AnnouncementsService,
     ErrorsRepository,
     ErrorsService,
+    DealRepository,
+    DealService,
+    InfluencerRepository,
+    InfluencerService,
+    PaymentRepository,
+    PaymentService,
+    ContractRepository,
+    ContractService,
   ],
   get exports() {
     return this.providers;
