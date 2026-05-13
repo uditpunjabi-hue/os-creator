@@ -191,9 +191,17 @@ export default function SchedulePage() {
               {upcoming.length} upcoming · synced to Google Calendar
             </div>
           </div>
-          <Button className="h-11 shrink-0">
-            <Plus className="h-4 w-4" /> Schedule
-          </Button>
+          <div className="flex shrink-0 items-center gap-2">
+            <a
+              href="/creator/analytics"
+              className="hidden h-9 items-center rounded-full border border-gray-200 px-3 text-xs font-medium text-gray-600 hover:border-gray-300 hover:text-gray-900 sm:inline-flex"
+            >
+              View analytics →
+            </a>
+            <Button className="h-11">
+              <Plus className="h-4 w-4" /> Schedule
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-2 px-4 pb-3 lg:px-8">

@@ -517,6 +517,9 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
           onApprove={() => {
             reset();
             onClose();
+            // Pipeline hand-off: approved script moves the creator into the
+            // filming workflow.
+            window.location.href = '/creator/content/new';
           }}
           onRevise={start}
           onReject={reset}

@@ -55,12 +55,12 @@ const managerNav: NavSection[] = [
     items: [
       { label: 'Inbox', href: '/manager/inbox', icon: Mail },
       { label: 'Deals', href: '/manager/deals', icon: Briefcase },
-      { label: 'Payments', href: '/manager/payments', icon: Wallet },
     ],
   },
   {
     title: 'Plan',
     items: [
+      { label: 'Payments', href: '/manager/payments', icon: Wallet },
       { label: 'Schedule', href: '/manager/schedule', icon: CalendarIcon },
       { label: 'Contracts', href: '/manager/contracts', icon: FileText },
     ],

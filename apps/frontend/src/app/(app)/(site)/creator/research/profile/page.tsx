@@ -537,6 +537,27 @@ export default function CreatorProfile() {
         )}
         </>
         )}
+
+        {/* Next-step CTA — completes the Content pipeline guidance */}
+        {!loading && (
+          <div className="mt-6 flex flex-col gap-2 rounded-2xl border border-purple-200 bg-gradient-to-br from-purple-50 to-white p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900">
+                Next: turn these insights into a script
+              </div>
+              <div className="text-xs text-gray-600">
+                Your AI manager will use this profile analysis + competitor
+                signals to draft a piece tailored to your audience.
+              </div>
+            </div>
+            <a
+              href="/creator/content/scripts"
+              className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-full bg-[#F59E0B] px-4 text-sm font-semibold text-black hover:brightness-110"
+            >
+              Start creating →
+            </a>
+          </div>
+        )}
       </div>
     </div>
   );

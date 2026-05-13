@@ -125,6 +125,15 @@ export default function CompetitorsPage() {
               {list.length} tracked · synced via Instagram Business Discovery
             </div>
           </div>
+          {list.length > 0 && (
+            <a
+              href="/creator/content/scripts"
+              className="hidden shrink-0 items-center gap-1.5 rounded-full bg-[#F59E0B] px-3 py-1.5 text-xs font-semibold text-black hover:brightness-110 sm:inline-flex"
+              title="Use these competitor signals when generating your next script"
+            >
+              Use for scripting →
+            </a>
+          )}
         </div>
 
         <div className="flex flex-col gap-2 px-4 pb-3 lg:px-8">

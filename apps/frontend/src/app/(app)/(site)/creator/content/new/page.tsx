@@ -300,8 +300,14 @@ export default function CreatePage() {
               <Button
                 className="h-12 w-full"
                 disabled={!Object.values(active.checks).every(Boolean) || active.stage === 'SCHEDULED'}
+                onClick={() => {
+                  if (active.stage !== 'SCHEDULED') {
+                    // Pipeline hand-off: ready content moves into Schedule.
+                    window.location.href = '/creator/schedule';
+                  }
+                }}
               >
-                {active.stage === 'SCHEDULED' ? 'Already scheduled' : 'Mark ready to schedule'}
+                {active.stage === 'SCHEDULED' ? 'Already scheduled' : 'Mark ready to schedule →'}
               </Button>
             </div>
           </section>
