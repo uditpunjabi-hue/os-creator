@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Video,
   Scissors,
@@ -102,6 +103,7 @@ const progressOf = (p: Piece) => {
 
 export default function CreatePage() {
   const fetch = useFetch();
+  const params = useSearchParams();
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [activeId, setActiveId] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -119,7 +121,13 @@ export default function CreatePage() {
         if (cancelled) return;
         const shaped = rows.map(shapeFromApi);
         setPieces(shaped);
-        if (shaped[0]) setActiveId(shaped[0].id);
+        // Pre-select the piece from ?piece= if provided (post-approval
+        // hand-off from the Scripts page). Otherwise default to newest.
+        const requested = params.get('piece');
+        const preferred = (requested && shaped.find((p) => p.id === requested))
+          ? requested
+          : shaped[0]?.id ?? '';
+        if (preferred) setActiveId(preferred);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -127,16 +135,38 @@ export default function CreatePage() {
     return () => {
       cancelled = true;
     };
-  }, [fetch]);
+  }, [fetch, params]);
 
   const active = pieces.find((p) => p.id === activeId) ?? pieces[0];
 
-  const toggle = (id: string, key: keyof Piece['checks']) => {
+  const toggle = async (id: string, key: keyof Piece['checks']) => {
+    const target = pieces.find((p) => p.id === id);
+    if (!target) return;
+    const nextValue = !target.checks[key];
+    // Optimistic UI: flip locally, persist in the background.
     setPieces((prev) =>
       prev.map((p) =>
-        p.id === id ? { ...p, checks: { ...p.checks, [key]: !p.checks[key] } } : p
+        p.id === id ? { ...p, checks: { ...p.checks, [key]: nextValue } } : p
       )
     );
+    try {
+      const res = await fetch(`/creator/content-pieces/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ [key]: nextValue }),
+      });
+      if (!res.ok) throw new Error(`PATCH ${res.status}`);
+      // Sync stage from server (backend stamps readyAt + may bump status).
+      const updated = (await res.json()) as ApiPiece;
+      setPieces((prev) => prev.map((p) => (p.id === id ? shapeFromApi(updated) : p)));
+    } catch {
+      // Roll back on failure.
+      setPieces((prev) =>
+        prev.map((p) =>
+          p.id === id ? { ...p, checks: { ...p.checks, [key]: !nextValue } } : p
+        )
+      );
+    }
   };
 
   return (

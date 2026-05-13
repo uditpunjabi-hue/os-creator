@@ -1,6 +1,25 @@
-import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
-import { IsArray, IsDateString, IsIn, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { Organization } from '@prisma/client';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
 import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
@@ -15,6 +34,15 @@ class SchedulePostDto {
   @IsIn(['IMAGE', 'CAROUSEL', 'REEL', 'STORY']) kind: 'IMAGE' | 'CAROUSEL' | 'REEL' | 'STORY';
   @IsArray() @IsString({ each: true }) platforms: string[];
   @IsDateString() scheduledAt: string;
+}
+
+class UpdateContentPieceDto {
+  @IsOptional() @IsBoolean() film?: boolean;
+  @IsOptional() @IsBoolean() edit?: boolean;
+  @IsOptional() @IsBoolean() captions?: boolean;
+  @IsOptional() @IsBoolean() finalReview?: boolean;
+  @IsOptional() @IsIn(['IDEA', 'FILMING', 'EDITING', 'READY', 'SCHEDULED', 'PUBLISHED'])
+  status?: 'IDEA' | 'FILMING' | 'EDITING' | 'READY' | 'SCHEDULED' | 'PUBLISHED';
 }
 
 /**
@@ -41,6 +69,57 @@ export class CreatorContentController {
       include: {
         script: { select: { id: true, title: true } },
       },
+    });
+  }
+
+  /**
+   * Persist checklist toggles + stage transitions. Auto-stamps the matching
+   * timestamp columns (filmedAt / editedAt / readyAt) so progress survives a
+   * reload. Used by the Create page when the user ticks Film/Edit/Captions/
+   * Final-review.
+   */
+  @Patch('/content-pieces/:id')
+  async updateContentPiece(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string,
+    @Body() body: UpdateContentPieceDto
+  ) {
+    const existing = await this.prisma.contentPiece.findFirst({
+      where: { id, organizationId: org.id },
+    });
+    if (!existing) throw new HttpException('ContentPiece not found', 404);
+
+    const currentChecklist =
+      (existing.checklist as Record<string, boolean> | null) ?? {};
+    const nextChecklist: Record<string, boolean> = {
+      film: currentChecklist.film ?? false,
+      edit: currentChecklist.edit ?? false,
+      captions: currentChecklist.captions ?? false,
+      finalReview: currentChecklist.finalReview ?? false,
+    };
+    for (const key of ['film', 'edit', 'captions', 'finalReview'] as const) {
+      if (body[key] !== undefined) nextChecklist[key] = body[key]!;
+    }
+
+    const now = new Date();
+    const data: Record<string, unknown> = { checklist: nextChecklist };
+    if (body.film === true && !existing.filmedAt) data.filmedAt = now;
+    if (body.edit === true && !existing.editedAt) data.editedAt = now;
+    if (
+      nextChecklist.film &&
+      nextChecklist.edit &&
+      nextChecklist.captions &&
+      nextChecklist.finalReview &&
+      !existing.readyAt
+    ) {
+      data.readyAt = now;
+    }
+    if (body.status) data.status = body.status;
+
+    return this.prisma.contentPiece.update({
+      where: { id },
+      data,
+      include: { script: { select: { id: true, title: true } } },
     });
   }
 

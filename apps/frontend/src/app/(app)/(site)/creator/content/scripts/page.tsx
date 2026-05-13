@@ -334,6 +334,7 @@ const CONTENT_TYPES = ['reel', 'post', 'story', 'carousel'] as const;
 
 function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initialPrompt?: string }) {
   const { backendUrl } = useVariables();
+  const fetch = useFetch();
   const [prompt, setPrompt] = useState(initialPrompt ?? '');
   useEffect(() => {
     if (initialPrompt) setPrompt(initialPrompt);
@@ -354,6 +355,8 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
   const [phase, setPhase] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [revised, setRevised] = useState(false);
+  const [scriptId, setScriptId] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const start = async () => {
@@ -362,6 +365,7 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
     setError(null);
     setOutputs({});
     setRevised(false);
+    setScriptId(null);
     setStatus({
       profile: 'pending',
       competitor: 'pending',
@@ -453,8 +457,36 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
         setPhase('error');
         break;
       case 'pipeline_done':
+        // Backend saved the Script as DRAFT — keep the id so Approve can
+        // flip it to APPROVED and spawn a ContentPiece.
+        if (typeof event.scriptId === 'string') setScriptId(event.scriptId);
         setPhase('done');
         break;
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!scriptId || approving) return;
+    setApproving(true);
+    try {
+      const res = await fetch(`/creator/scripts/${scriptId}/approve`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        setError(payload.message ?? `Approve failed (${res.status})`);
+        setApproving(false);
+        return;
+      }
+      const { piece } = (await res.json()) as { piece: { id: string } };
+      reset();
+      onClose();
+      // Hand-off: approved script lands in the filming workflow with the
+      // matching piece pre-selected on the Create page.
+      window.location.href = `/creator/content/new?piece=${piece.id}`;
+    } catch (e) {
+      setError((e as Error).message);
+      setApproving(false);
     }
   };
 
@@ -514,13 +546,9 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
           script={finalScript}
           quality={finalQuality}
           wasRevised={revised}
-          onApprove={() => {
-            reset();
-            onClose();
-            // Pipeline hand-off: approved script moves the creator into the
-            // filming workflow.
-            window.location.href = '/creator/content/new';
-          }}
+          approving={approving}
+          canApprove={!!scriptId}
+          onApprove={handleApprove}
           onRevise={start}
           onReject={reset}
         />
@@ -721,6 +749,8 @@ function PipelineResult({
   script,
   quality,
   wasRevised,
+  approving,
+  canApprove,
   onApprove,
   onRevise,
   onReject,
@@ -728,6 +758,8 @@ function PipelineResult({
   script: ScriptDraft;
   quality: QualityReview;
   wasRevised: boolean;
+  approving: boolean;
+  canApprove: boolean;
   onApprove: () => void;
   onRevise: () => void;
   onReject: () => void;
@@ -814,13 +846,25 @@ function PipelineResult({
       </div>
 
       <div className="flex flex-wrap gap-2 pt-1">
-        <Button className="h-11 flex-1" onClick={onApprove}>
-          <CheckCircle2 className="h-4 w-4" /> Approve · move to Create
+        <Button
+          className="h-11 flex-1"
+          onClick={onApprove}
+          disabled={!canApprove || approving}
+        >
+          {approving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> Approving…
+            </>
+          ) : (
+            <>
+              <CheckCircle2 className="h-4 w-4" /> Approve · move to Create
+            </>
+          )}
         </Button>
-        <Button variant="outline" className="h-11" onClick={onRevise}>
+        <Button variant="outline" className="h-11" onClick={onRevise} disabled={approving}>
           <RefreshCw className="h-4 w-4" /> Revise
         </Button>
-        <Button variant="outline" className="h-11" onClick={onReject}>
+        <Button variant="outline" className="h-11" onClick={onReject} disabled={approving}>
           <ArrowLeft className="h-4 w-4" /> Start over
         </Button>
       </div>
