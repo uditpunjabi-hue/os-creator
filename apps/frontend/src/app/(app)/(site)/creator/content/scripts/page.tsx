@@ -24,7 +24,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
-import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { SkeletonList } from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
 
@@ -333,7 +332,6 @@ const TONES = ['educational', 'entertaining', 'inspirational', 'promotional'] as
 const CONTENT_TYPES = ['reel', 'post', 'story', 'carousel'] as const;
 
 function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initialPrompt?: string }) {
-  const { backendUrl } = useVariables();
   const fetch = useFetch();
   const [prompt, setPrompt] = useState(initialPrompt ?? '');
   useEffect(() => {
@@ -381,9 +379,11 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
     abortRef.current = controller;
 
     try {
-      const res = await fetch(`${backendUrl}/creator/scripts/generate`, {
+      // useFetch prepends the backend URL — pass a relative path. (Earlier
+      // version concatenated backendUrl manually, which double-prepended once
+      // we started using useFetch in this component.)
+      const res = await fetch(`/creator/scripts/generate`, {
         method: 'POST',
-        credentials: 'include',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ prompt: prompt.trim(), contentType, tone }),
         signal: controller.signal,
