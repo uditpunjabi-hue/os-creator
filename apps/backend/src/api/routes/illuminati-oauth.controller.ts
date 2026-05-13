@@ -476,18 +476,37 @@ export class IlluminatiOAuthController {
    * Single-tenant demo mode: link OAuth tokens to the seeded admin user.
    * Multi-tenant would encode userId into OAuth `state` (signed with JWT_SECRET)
    * and decode on callback.
+   *
+   * Self-heals on first run after a fresh `prisma db push` — creates the user,
+   * org, and membership if they don't exist yet, so OAuth callbacks succeed on
+   * an empty DB instead of crashing with DEMO_USER_NOT_SEEDED.
    */
   private async demoUserId(): Promise<string> {
-    const user = await this.prisma.user.findFirst({
+    const existing = await this.prisma.user.findFirst({
       where: { email: 'opnclaw123@gmail.com', providerName: 'LOCAL' },
     });
-    if (!user) {
-      throw new HttpException(
-        { error: 'DEMO_USER_NOT_SEEDED' },
-        500
-      );
-    }
-    return user.id;
+    if (existing) return existing.id;
+
+    this.logger.warn(
+      '[IG/Google callback] demo user not found — auto-creating opnclaw123@gmail.com + org'
+    );
+    const created = await this.prisma.user.create({
+      data: {
+        email: 'opnclaw123@gmail.com',
+        providerName: 'LOCAL',
+        timezone: 0,
+        isSuperAdmin: true,
+        organizations: {
+          create: {
+            role: 'SUPERADMIN',
+            organization: {
+              create: { name: 'Illuminati' },
+            },
+          },
+        },
+      },
+    });
+    return created.id;
   }
 
   /**
