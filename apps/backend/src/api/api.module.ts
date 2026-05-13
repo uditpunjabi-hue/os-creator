@@ -46,6 +46,8 @@ import { InboxController } from '@gitroom/backend/api/routes/manager/inbox.contr
 import { ScheduleController } from '@gitroom/backend/api/routes/manager/schedule.controller';
 import { CreatorScriptsController } from '@gitroom/backend/api/routes/creator/scripts.controller';
 import { PipelineOrchestrator } from '@gitroom/backend/agents/pipeline.orchestrator';
+import { IlluminatiOAuthController } from '@gitroom/backend/api/routes/illuminati-oauth.controller';
+import { ConnectionsController } from '@gitroom/backend/api/routes/connections.controller';
 import {
   EMAIL_PROVIDER_TOKEN,
   MockEmailProvider,
@@ -92,6 +94,7 @@ const authenticatedController = [
   InboxController,
   ScheduleController,
   CreatorScriptsController,
+  ConnectionsController,
 ];
 @Module({
   imports: [UploadModule],
@@ -104,6 +107,7 @@ const authenticatedController = [
     EnterpriseController,
     NoAuthIntegrationsController,
     OAuthController,
+    IlluminatiOAuthController,
     ...authenticatedController,
   ],
   providers: [

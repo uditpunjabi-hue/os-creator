@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import useCookie from 'react-use-cookie';
-import { Instagram, Mail, CheckCircle2, Loader2 } from 'lucide-react';
+import { Instagram, Mail, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { Logo } from '@gitroom/frontend/components/new-layout/logo';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 
 type Provider = 'instagram' | 'google';
 
@@ -38,30 +38,58 @@ const PER_STEP_MS = 600;
 export default function OnboardingConnectingPage() {
   const router = useRouter();
   const params = useSearchParams();
+  const fetch = useFetch();
   const provider = (params.get('provider') as Provider) || 'instagram';
+  const warning = params.get('warning'); // e.g. 'no_ig_business'
   const [step, setStep] = useState(0);
-  const [igConnected] = useCookie('illum-ig', '');
-  const [googleConnected] = useCookie('illum-google', '');
+  const [connStatus, setConnStatus] = useState<{
+    instagram: boolean;
+    google: boolean;
+  } | null>(null);
 
   const config = copyByProvider[provider] ?? copyByProvider.instagram;
   const Icon = config.icon;
   const totalSteps = config.steps.length;
 
+  // Pull live connection status — drives the "where to go next" decision.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/connections');
+        if (!res.ok) {
+          if (!cancelled) setConnStatus({ instagram: false, google: false });
+          return;
+        }
+        const data = await res.json();
+        if (!cancelled)
+          setConnStatus({
+            instagram: !!data?.instagram?.connected,
+            google: !!data?.google?.connected,
+          });
+      } catch {
+        if (!cancelled) setConnStatus({ instagram: false, google: false });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetch]);
+
   useEffect(() => {
     if (step >= totalSteps) {
-      // Decide next destination based on what's connected.
+      // Where to go: if both connected, dashboard. Otherwise back to /auth to
+      // connect the other provider.
       const next =
-        provider === 'instagram' && !googleConnected
-          ? '/auth/login?stay=1'
-          : !igConnected
-          ? '/auth/login?stay=1'
-          : '/creator/research/profile';
+        connStatus && connStatus.instagram && connStatus.google
+          ? '/creator/research/profile'
+          : '/auth/login?stay=1';
       const t = setTimeout(() => router.replace(next), 400);
       return () => clearTimeout(t);
     }
     const t = setTimeout(() => setStep((s) => s + 1), PER_STEP_MS);
     return () => clearTimeout(t);
-  }, [step, totalSteps, provider, router, igConnected, googleConnected]);
+  }, [step, totalSteps, router, connStatus]);
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-[#0F0F0F] px-4 py-10">
@@ -90,6 +118,18 @@ export default function OnboardingConnectingPage() {
         <p className="mb-8 text-center text-sm text-[#9C9C9C]">
           This will only take a moment.
         </p>
+
+        {warning === 'no_ig_business' && (
+          <div className="mb-3 flex w-full items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <div className="font-semibold">Instagram connected — but no Business account found.</div>
+              <div className="mt-1 opacity-90">
+                Profile insights require an IG Business or Creator account linked to a Facebook Page. Set that up at business.facebook.com, then reconnect from Settings.
+              </div>
+            </div>
+          </div>
+        )}
 
         <ul className="flex w-full flex-col gap-2 rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] p-3">
           {config.steps.map((label, idx) => {

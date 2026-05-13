@@ -1,13 +1,16 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import useCookie from 'react-use-cookie';
-import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2 } from 'lucide-react';
 import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 
 type Section = 'profile' | 'team' | 'notifications' | 'integrations';
+
+const fmtFollowers = (n: number) =>
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : `${n}`;
 
 const sections: { key: Section; label: string; description: string; icon: typeof User2 }[] = [
   { key: 'profile', label: 'Profile', description: 'Your name, email and workspace', icon: User2 },
@@ -172,21 +175,68 @@ export default function SettingsPage() {
   );
 }
 
-function IntegrationsPanel() {
-  const router = useRouter();
-  const [ig, setIg] = useCookie('illum-ig', '');
-  const [google, setGoogle] = useCookie('illum-google', '');
+interface ConnectionStatus {
+  google: { connected: boolean; email?: string | null; connectedAt?: string | null };
+  instagram: { connected: boolean; handle?: string | null; followers?: number | null; connectedAt?: string | null };
+}
 
-  const accounts = [
+function IntegrationsPanel() {
+  const fetch = useFetch();
+  const { backendUrl } = useVariables();
+  const [status, setStatus] = useState<ConnectionStatus | null>(null);
+  const [busy, setBusy] = useState<'instagram' | 'google' | null>(null);
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetch('/connections');
+      if (!res.ok) {
+        setStatus({ google: { connected: false }, instagram: { connected: false } });
+        return;
+      }
+      const data = (await res.json()) as ConnectionStatus;
+      setStatus(data);
+    } catch {
+      setStatus({ google: { connected: false }, instagram: { connected: false } });
+    }
+  }, [fetch]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const disconnect = async (provider: 'instagram' | 'google') => {
+    setBusy(provider);
+    try {
+      await fetch(`/connections/${provider}/disconnect`, { method: 'POST' });
+      await reload();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const connect = (provider: 'instagram' | 'google') => {
+    window.location.href = `${backendUrl}/oauth/${provider}/start`;
+  };
+
+  const accounts: Array<{
+    key: 'instagram' | 'google';
+    name: string;
+    description: string;
+    icon: typeof Instagram;
+    accent: string;
+    connected: boolean;
+    label: string | null;
+  }> = [
     {
       key: 'instagram',
       name: 'Instagram',
       description: 'Profile, followers, post performance',
       icon: Instagram,
       accent: '#E1306C',
-      value: ig,
-      onConnect: () => router.push('/auth/login?stay=1'),
-      onDisconnect: () => setIg(''),
+      connected: !!status?.instagram.connected,
+      label: status?.instagram.handle
+        ? `${status.instagram.handle}${status.instagram.followers ? ` · ${fmtFollowers(status.instagram.followers)} followers` : ''}`
+        : null,
     },
     {
       key: 'google',
@@ -194,9 +244,8 @@ function IntegrationsPanel() {
       description: 'Inbox, schedule, contract uploads',
       icon: Mail,
       accent: '#F59E0B',
-      value: google,
-      onConnect: () => router.push('/auth/login?stay=1'),
-      onDisconnect: () => setGoogle(''),
+      connected: !!status?.google.connected,
+      label: status?.google.email ?? null,
     },
   ];
 
@@ -209,7 +258,6 @@ function IntegrationsPanel() {
       <ul className="mt-5 flex flex-col gap-2">
         {accounts.map((a) => {
           const Icon = a.icon;
-          const connected = !!a.value;
           return (
             <li
               key={a.key}
@@ -218,13 +266,13 @@ function IntegrationsPanel() {
               <div
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
                 style={{
-                  backgroundColor: connected
+                  backgroundColor: a.connected
                     ? 'rgba(16,185,129,0.16)'
                     : `${a.accent}22`,
-                  color: connected ? '#34D399' : a.accent,
+                  color: a.connected ? '#34D399' : a.accent,
                 }}
               >
-                {connected ? (
+                {a.connected ? (
                   <CheckCircle2 className="h-5 w-5" />
                 ) : (
                   <Icon className="h-5 w-5" />
@@ -233,20 +281,21 @@ function IntegrationsPanel() {
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-medium text-gray-900">{a.name}</div>
                 <div className="truncate text-xs text-gray-500">
-                  {connected ? a.value : a.description}
+                  {a.connected ? a.label ?? 'Connected' : a.description}
                 </div>
               </div>
-              {connected ? (
+              {a.connected ? (
                 <Button
                   variant="outline"
                   size="sm"
                   className="h-9"
-                  onClick={a.onDisconnect}
+                  disabled={busy === a.key}
+                  onClick={() => disconnect(a.key)}
                 >
-                  Disconnect
+                  {busy === a.key ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Disconnect'}
                 </Button>
               ) : (
-                <Button size="sm" className="h-9" onClick={a.onConnect}>
+                <Button size="sm" className="h-9" onClick={() => connect(a.key)}>
                   Connect
                 </Button>
               )}

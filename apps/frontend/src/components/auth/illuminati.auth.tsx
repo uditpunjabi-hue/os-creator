@@ -2,65 +2,78 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import useCookie from 'react-use-cookie';
 import { Instagram, Mail, Loader2, CheckCircle2, ArrowRight } from 'lucide-react';
 import { Logo } from '@gitroom/frontend/components/new-layout/logo';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { cn } from '@gitroom/frontend/lib/utils';
 
-const SEED_EMAIL = 'opnclaw123@gmail.com';
-const SEED_PASSWORD = 'illuminati123';
-const IG_COOKIE = 'illum-ig';
-const GOOGLE_COOKIE = 'illum-google';
-
 type ProviderKey = 'instagram' | 'google';
+
+interface ConnectionStatus {
+  google: { connected: boolean; email?: string | null };
+  instagram: { connected: boolean; handle?: string | null };
+}
+
+const knownErrors: Record<string, string> = {
+  google_token_exchange: 'Google rejected the token exchange. Re-check the OAuth client ID + secret and redirect URI in console.cloud.google.com.',
+  meta_token_exchange: 'Meta rejected the token exchange. Re-check META_APP_ID + META_APP_SECRET and the redirect URI in developers.facebook.com.',
+  google_callback: 'Google callback failed unexpectedly. Check the backend logs.',
+  instagram_callback: 'Instagram callback failed unexpectedly. Check the backend logs.',
+  no_code: 'OAuth provider returned no auth code (you may have denied consent).',
+};
 
 export function IlluminatiAuth() {
   const router = useRouter();
   const params = useSearchParams();
   const fetch = useFetch();
-  const [igConnected, setIg] = useCookie(IG_COOKIE, '');
-  const [googleConnected, setGoogle] = useCookie(GOOGLE_COOKIE, '');
+  const { backendUrl } = useVariables();
+  const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [pending, setPending] = useState<ProviderKey | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Backend login as the seeded user — used for both providers in the placeholder flow.
-  const placeholderLogin = useCallback(async () => {
-    const res = await fetch('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: SEED_EMAIL,
-        password: SEED_PASSWORD,
-        providerToken: '',
-        provider: 'LOCAL',
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => '');
-      throw new Error(txt || `Login failed: ${res.status}`);
-    }
-    return res.json();
+  // Pull live connection status from the backend (authenticated endpoint).
+  // A 401 just means "not signed in yet" — render the unconnected state.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/connections');
+        if (!res.ok) {
+          if (!cancelled) setStatus({ google: { connected: false }, instagram: { connected: false } });
+          return;
+        }
+        const data = (await res.json()) as ConnectionStatus;
+        if (!cancelled) setStatus(data);
+      } catch {
+        if (!cancelled) setStatus({ google: { connected: false }, instagram: { connected: false } });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [fetch]);
 
+  useEffect(() => {
+    const err = params.get('error');
+    if (err) setError(knownErrors[err] ?? `OAuth error: ${err}`);
+  }, [params]);
+
   const handleConnect = useCallback(
-    async (provider: ProviderKey) => {
+    (provider: ProviderKey) => {
       setError(null);
       setPending(provider);
-      try {
-        // Placeholder OAuth: sign in as the seeded creator and mark provider connected.
-        await placeholderLogin();
-        if (provider === 'instagram') setIg('@ariavance');
-        else setGoogle(SEED_EMAIL);
-        router.push(`/onboarding/connecting?provider=${provider}`);
-      } catch (e) {
-        setError((e as Error).message);
-        setPending(null);
-      }
+      // Full page nav to the backend OAuth start route — it 302s to Google/Meta.
+      window.location.href = `${backendUrl}/oauth/${provider}/start`;
     },
-    [placeholderLogin, router, setIg, setGoogle]
+    [backendUrl]
   );
 
-  const bothConnected = !!igConnected && !!googleConnected;
+  const igConnected = status?.instagram.connected ?? false;
+  const googleConnected = status?.google.connected ?? false;
+  const igLabel = status?.instagram.handle ?? null;
+  const googleLabel = status?.google.email ?? null;
+  const bothConnected = igConnected && googleConnected;
 
   // If user lands here already fully connected, auto-bounce to dashboard.
   useEffect(() => {
@@ -100,6 +113,7 @@ export function IlluminatiAuth() {
             sub="Pulls your profile, followers, and post performance."
             icon={Instagram}
             connected={igConnected}
+            connectedLabel={igLabel}
             pending={pending === 'instagram'}
             onClick={() => handleConnect('instagram')}
           />
@@ -109,6 +123,7 @@ export function IlluminatiAuth() {
             sub="Connects Gmail, Calendar, and Drive in one consent."
             icon={Mail}
             connected={googleConnected}
+            connectedLabel={googleLabel}
             pending={pending === 'google'}
             onClick={() => handleConnect('google')}
           />
@@ -139,6 +154,7 @@ function ConnectCard({
   sub,
   icon: Icon,
   connected,
+  connectedLabel,
   pending,
   onClick,
 }: {
@@ -146,7 +162,8 @@ function ConnectCard({
   label: string;
   sub: string;
   icon: typeof Instagram;
-  connected: string;
+  connected: boolean;
+  connectedLabel: string | null;
   pending: boolean;
   onClick: () => void;
 }) {
@@ -155,7 +172,7 @@ function ConnectCard({
     <button
       type="button"
       onClick={onClick}
-      disabled={pending || !!connected}
+      disabled={pending || connected}
       className={cn(
         'group flex items-center gap-4 rounded-2xl border bg-[#1A1A1A] p-4 text-left transition-colors',
         connected
@@ -184,7 +201,7 @@ function ConnectCard({
           {connected ? `${label} connected` : `Continue with ${label}`}
         </div>
         <div className="truncate text-xs text-[#9C9C9C]">
-          {connected ? connected : sub}
+          {connected ? connectedLabel ?? 'Account linked' : sub}
         </div>
       </div>
       {!connected && !pending && (

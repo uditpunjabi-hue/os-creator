@@ -129,6 +129,23 @@ model User {
   scripts               Script[]
   userMode              UserMode             @default(MANAGER)
 
+  // Google OAuth (Gmail + Calendar + Drive)
+  googleAccessToken     String?
+  googleRefreshToken    String?
+  googleExpiresAt       DateTime?
+  googleEmail           String?
+  googleConnectedAt     DateTime?
+
+  // Instagram via Facebook Login for Business
+  instagramAccessToken  String?
+  instagramUserId       String?
+  instagramHandle       String?
+  instagramFollowers    Int?
+  instagramMediaCount   Int?
+  instagramBio          String?
+  instagramProfilePic   String?
+  instagramConnectedAt  DateTime?
+
   @@unique([email, providerName])
   @@index([lastReadNotifications])
   @@index([inviteId])
