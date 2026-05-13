@@ -48,18 +48,17 @@ import { CreatorScriptsController } from '@gitroom/backend/api/routes/creator/sc
 import { PipelineOrchestrator } from '@gitroom/backend/agents/pipeline.orchestrator';
 import { IlluminatiOAuthController } from '@gitroom/backend/api/routes/illuminati-oauth.controller';
 import { ConnectionsController } from '@gitroom/backend/api/routes/connections.controller';
-import {
-  EMAIL_PROVIDER_TOKEN,
-  MockEmailProvider,
-} from '@gitroom/backend/services/providers/email.provider';
-import {
-  CALENDAR_PROVIDER_TOKEN,
-  MockCalendarProvider,
-} from '@gitroom/backend/services/providers/calendar.provider';
+import { EMAIL_PROVIDER_TOKEN } from '@gitroom/backend/services/providers/email.provider';
+import { CALENDAR_PROVIDER_TOKEN } from '@gitroom/backend/services/providers/calendar.provider';
 import {
   PUBLISHING_PROVIDER_TOKEN,
   MockPublishingProvider,
 } from '@gitroom/backend/services/providers/publishing.provider';
+import { GmailEmailProvider } from '@gitroom/backend/services/providers/gmail.email.provider';
+import { GoogleCalendarProvider } from '@gitroom/backend/services/providers/google-calendar.provider';
+import { GoogleTokenService } from '@gitroom/backend/services/google/google-token.service';
+import { InstagramFetcherService } from '@gitroom/backend/services/instagram/instagram.fetcher.service';
+import { CreatorProfileController } from '@gitroom/backend/api/routes/creator/profile.controller';
 import { AuthProviderManager } from '@gitroom/backend/services/auth/providers/providers.manager';
 import { GithubProvider } from '@gitroom/backend/services/auth/providers/github.provider';
 import { GoogleProvider } from '@gitroom/backend/services/auth/providers/google.provider';
@@ -94,6 +93,7 @@ const authenticatedController = [
   InboxController,
   ScheduleController,
   CreatorScriptsController,
+  CreatorProfileController,
   ConnectionsController,
 ];
 @Module({
@@ -129,10 +129,14 @@ const authenticatedController = [
     FarcasterProvider,
     WalletProvider,
     OauthProvider,
-    { provide: EMAIL_PROVIDER_TOKEN, useClass: MockEmailProvider },
-    { provide: CALENDAR_PROVIDER_TOKEN, useClass: MockCalendarProvider },
+    { provide: EMAIL_PROVIDER_TOKEN, useClass: GmailEmailProvider },
+    { provide: CALENDAR_PROVIDER_TOKEN, useClass: GoogleCalendarProvider },
     { provide: PUBLISHING_PROVIDER_TOKEN, useClass: MockPublishingProvider },
     PipelineOrchestrator,
+    GoogleTokenService,
+    GmailEmailProvider,
+    GoogleCalendarProvider,
+    InstagramFetcherService,
   ],
   get exports() {
     return [...this.imports, ...this.providers];

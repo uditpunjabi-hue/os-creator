@@ -268,10 +268,15 @@ export class IlluminatiOAuthController {
         );
       }
 
+      // IMPORTANT: store the *Page* access token (not the user token) — it's
+      // what's needed for all subsequent IG Graph API calls (media, insights).
+      // Page tokens issued from a long-lived user token are themselves
+      // long-lived (no expiry).
+      const tokenForIgCalls = pageWithIg?.access_token ?? fbToken;
       await this.prisma.user.update({
         where: { id: await this.demoUserId() },
         data: {
-          instagramAccessToken: fbToken,
+          instagramAccessToken: tokenForIgCalls,
           instagramUserId: igProfile?.id ?? pageWithIg?.instagram_business_account?.id ?? null,
           instagramHandle: igProfile?.username
             ? `@${igProfile.username}`
