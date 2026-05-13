@@ -23,7 +23,11 @@ export const removeAuth = (res: Response) => {
   res.header('logout', 'true');
 };
 
-const DEV_USER_EMAIL = 'dev@os-creator.local';
+// Single-tenant demo: every OAuth callback writes to this email (see
+// IlluminatiOAuthController.demoUserId). Keep the auth fallback aligned so
+// the API serves the same org regardless of cookie state — losing the JWT
+// cookie shouldn't reroute requests to an empty "dev" org.
+const DEV_USER_EMAIL = 'opnclaw123@gmail.com';
 
 @Injectable()
 export class AuthMiddleware implements NestMiddleware {
@@ -45,7 +49,7 @@ export class AuthMiddleware implements NestMiddleware {
           email: DEV_USER_EMAIL,
           password: 'illuminati-dev',
           provider: Provider.LOCAL,
-          company: 'Illuminati Dev',
+          company: 'Illuminati',
         } as any,
         '127.0.0.1',
         'illuminati-dev'
