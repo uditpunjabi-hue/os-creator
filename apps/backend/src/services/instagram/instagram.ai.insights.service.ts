@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+import { memoryCache } from '@gitroom/backend/services/cache/memory.cache';
 import { callClaude } from '@gitroom/backend/agents/anthropic.client';
 import { InstagramFetcherService } from './instagram.fetcher.service';
 
@@ -54,10 +54,8 @@ export class InstagramAiInsightsService {
 
   async getAiInsights(orgId: string, force = false): Promise<AiInsightsResponse> {
     if (!force) {
-      try {
-        const cached = await ioRedis.get(CACHE_KEY(orgId));
-        if (cached) return JSON.parse(cached) as AiInsightsResponse;
-      } catch {}
+      const cached = memoryCache.get<AiInsightsResponse>(CACHE_KEY(orgId));
+      if (cached) return cached;
     }
 
     const profile = await this.fetcher.getProfile(orgId);
@@ -115,9 +113,7 @@ export class InstagramAiInsightsService {
       audiencePulse: parsed.audiencePulse ?? [],
       contentGaps: parsed.contentGaps ?? [],
     };
-    try {
-      await ioRedis.set(CACHE_KEY(orgId), JSON.stringify(out), 'EX', CACHE_TTL);
-    } catch {}
+    memoryCache.set(CACHE_KEY(orgId), out, CACHE_TTL);
     return out;
   }
 }

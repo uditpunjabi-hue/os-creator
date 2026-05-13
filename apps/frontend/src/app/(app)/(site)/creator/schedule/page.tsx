@@ -387,6 +387,22 @@ export default function SchedulePage() {
                 </Button>
               </li>
             ))}
+            {queue.length === 0 && (
+              <li className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
+                <div className="text-sm font-medium text-gray-900">
+                  Nothing ready to schedule
+                </div>
+                <div className="max-w-xs text-xs text-gray-500">
+                  Approved scripts that finish the filming checklist land here.
+                </div>
+                <a
+                  href="/creator/content/new"
+                  className="rounded-full bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-700"
+                >
+                  Go to Create →
+                </a>
+              </li>
+            )}
           </ul>
         </section>
       </div>

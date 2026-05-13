@@ -47,15 +47,11 @@ async function start() {
     },
   });
 
-  try {
-    await startMcp(app);
-  } catch (err) {
-    Logger.warn(
-      'startMcp failed — continuing without MCP/chat memory: ' +
-        ((err as Error)?.message || String(err)),
-      'Bootstrap'
-    );
-  }
+  // startMcp disabled — depends on MastraService which was removed with the
+  // ChatModule (apps/backend/src/app.module.ts). Illuminati doesn't expose an
+  // external MCP server; the AI features (6-agent pipeline + Content DNA +
+  // Suggest Reply) call Claude directly.
+  // try { await startMcp(app); } catch (err) { Logger.warn(...) }
 
   app.useGlobalPipes(
     new ValidationPipe({

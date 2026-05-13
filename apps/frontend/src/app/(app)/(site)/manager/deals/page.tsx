@@ -149,6 +149,37 @@ export default function DealsPage() {
             <div className="flex items-center justify-center py-12 text-sm text-gray-400">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading deals…
             </div>
+          ) : rows.length === 0 ? (
+            <div className="mx-auto flex max-w-md flex-col items-center justify-center gap-4 py-16 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-purple-100 text-purple-700">
+                <Plus className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="text-base font-semibold text-gray-900">
+                  No deals yet
+                </div>
+                <div className="mt-1 max-w-sm text-sm text-gray-600">
+                  Track brand collaborations from first email to final payment.
+                  Add one to see your pipeline come to life.
+                </div>
+              </div>
+              <Button
+                className="h-11"
+                onClick={() => setAddOpen(true)}
+                disabled={(influencers?.length ?? 0) === 0}
+                title={(influencers?.length ?? 0) === 0 ? 'Add a creator first' : undefined}
+              >
+                <Plus className="h-4 w-4" /> Create your first deal
+              </Button>
+              {(influencers?.length ?? 0) === 0 && (
+                <a
+                  href="/manager/influencers"
+                  className="text-xs font-medium text-purple-600 hover:text-purple-700"
+                >
+                  Set up a creator profile first →
+                </a>
+              )}
+            </div>
           ) : (
             <div className="flex h-full min-w-max gap-3 pb-4 lg:gap-4">
               {stages.map((stage) => (

@@ -63,8 +63,11 @@ export class ConfigurationChecker {
   }
 
   checkRedis() {
+    // Illuminati doesn't require Redis — falls back to MockRedis in
+    // redis.service.ts when REDIS_URL is unset. Only validate the URL
+    // when it's explicitly provided.
     if (!this.cfg.REDIS_URL) {
-      this.issues.push('REDIS_URL not set');
+      return;
     }
 
     try {

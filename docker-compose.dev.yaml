@@ -19,15 +19,10 @@ services:
       - 5432:5432
     networks:
       - postiz-network
-  postiz-redis:
-    # ref: https://hub.docker.com/_/redis
-    image: redis:7-alpine # 7.4.0
-    container_name: postiz-redis
-    restart: always
-    ports:
-      - 6379:6379
-    networks:
-      - postiz-network
+  # postiz-redis removed — Illuminati uses in-memory caching only. The legacy
+  # Postiz wallet + enterprise OAuth code paths fall back to a MockRedis stub
+  # in libraries/.../redis.service.ts when REDIS_URL is unset, so the app
+  # boots fine without Redis running.
   postiz-pg-admin:
     # ref: https://hub.docker.com/r/dpage/pgadmin4/tags
     image: dpage/pgadmin4:latest
@@ -40,19 +35,7 @@ services:
       PGADMIN_DEFAULT_PASSWORD: admin
     networks:
       - postiz-network
-  postiz-redisinsight:
-    # ref: https://hub.docker.com/r/redis/redisinsight
-    image: redis/redisinsight:latest
-    container_name: postiz-redisinsight
-    links:
-      - postiz-redis
-    ports:
-      - '5540:5540'
-    volumes:
-      - redisinsight:/data
-    networks:
-      - postiz-network
-    restart: always
+  # postiz-redisinsight removed (was the Redis admin UI for postiz-redis).
 
   temporal-elasticsearch:
     container_name: temporal-elasticsearch

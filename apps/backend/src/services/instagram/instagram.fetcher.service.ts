@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+import { memoryCache } from '@gitroom/backend/services/cache/memory.cache';
 
 const FB_GRAPH = 'https://graph.facebook.com/v18.0';
 const MEDIA_CACHE_KEY = (userId: string) => `ig:media:${userId}`;
@@ -108,10 +108,8 @@ export class InstagramFetcherService {
     igUserId: string
   ): Promise<IgMedia[]> {
     const cacheKey = MEDIA_CACHE_KEY(userId);
-    try {
-      const cached = await ioRedis.get(cacheKey);
-      if (cached) return JSON.parse(cached) as IgMedia[];
-    } catch {}
+    const cached = memoryCache.get<IgMedia[]>(cacheKey);
+    if (cached) return cached;
 
     try {
       const fields =
@@ -148,9 +146,7 @@ export class InstagramFetcherService {
         commentsCount: m.comments_count ?? 0,
         timestamp: m.timestamp ?? new Date().toISOString(),
       }));
-      try {
-        await ioRedis.set(cacheKey, JSON.stringify(items), 'EX', CACHE_TTL_SECONDS);
-      } catch {}
+      memoryCache.set(cacheKey, items, CACHE_TTL_SECONDS);
       return items;
     } catch (e) {
       this.logger.error(`IG fetchRecentMedia crashed: ${(e as Error).message}`);

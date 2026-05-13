@@ -19,7 +19,9 @@ import { NotificationsController } from '@gitroom/backend/api/routes/notificatio
 import { OpenaiService } from '@gitroom/nestjs-libraries/openai/openai.service';
 import { ExtractContentService } from '@gitroom/nestjs-libraries/openai/extract.content.service';
 import { CodesService } from '@gitroom/nestjs-libraries/services/codes.service';
-import { CopilotController } from '@gitroom/backend/api/routes/copilot.controller';
+// CopilotController disabled — Mastra/CopilotKit Postiz scaffolding, unused
+// by Illuminati. Caused Mastra-Postgres table-bootstrap crash at startup.
+// import { CopilotController } from '@gitroom/backend/api/routes/copilot.controller';
 import { PublicController } from '@gitroom/backend/api/routes/public.controller';
 import { RootController } from '@gitroom/backend/api/routes/root.controller';
 import { TrackService } from '@gitroom/nestjs-libraries/track/track.service';
@@ -82,7 +84,7 @@ const authenticatedController = [
   MediaController,
   BillingController,
   NotificationsController,
-  CopilotController,
+  // CopilotController, // disabled — see import comment
   WebhookController,
   SignatureController,
   AutopostController,

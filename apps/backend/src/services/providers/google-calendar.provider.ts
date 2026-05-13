@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+import { memoryCache } from '@gitroom/backend/services/cache/memory.cache';
 import { GoogleTokenService } from '@gitroom/backend/services/google/google-token.service';
 import type {
   CalendarEvent,
@@ -31,10 +31,8 @@ export class GoogleCalendarProvider implements CalendarProvider {
     if (!conn) return [];
 
     const cacheKey = LIST_CACHE_KEY(orgId, fromIso, toIso);
-    try {
-      const cached = await ioRedis.get(cacheKey);
-      if (cached) return JSON.parse(cached) as CalendarEvent[];
-    } catch {}
+    const cached = memoryCache.get<CalendarEvent[]>(cacheKey);
+    if (cached) return cached;
 
     try {
       const url = new URL(`${CAL_BASE}/calendars/primary/events`);
@@ -65,9 +63,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
           description: e.description,
         }));
 
-      try {
-        await ioRedis.set(cacheKey, JSON.stringify(events), 'EX', CACHE_TTL_SECONDS);
-      } catch {}
+      memoryCache.set(cacheKey, events, CACHE_TTL_SECONDS);
       return events;
     } catch (e) {
       this.logger.error(`Calendar listEvents crashed: ${(e as Error).message}`);
@@ -101,10 +97,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
       const created = (await res.json()) as GcalEvent;
 
       // Bust the list cache for this org.
-      try {
-        const keys = await ioRedis.keys(`gcal:list:${orgId}:*`);
-        if (keys.length) await ioRedis.del(...keys);
-      } catch {}
+      memoryCache.delPattern(`gcal:list:${orgId}:*`);
 
       return {
         id: created.id,
@@ -130,10 +123,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
         headers: { Authorization: `Bearer ${conn.token}` },
       });
       const ok = res.ok || res.status === 410; // 410 = already gone, treat as success
-      try {
-        const keys = await ioRedis.keys(`gcal:list:${orgId}:*`);
-        if (keys.length) await ioRedis.del(...keys);
-      } catch {}
+      memoryCache.delPattern(`gcal:list:${orgId}:*`);
       return { ok };
     } catch (e) {
       this.logger.warn(`Calendar delete crashed: ${(e as Error).message}`);

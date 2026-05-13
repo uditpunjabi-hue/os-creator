@@ -11,7 +11,11 @@ import { ThirdPartyModule } from '@gitroom/nestjs-libraries/3rdparties/thirdpart
 import { VideoModule } from '@gitroom/nestjs-libraries/videos/video.module';
 import { SentryModule } from '@sentry/nestjs/setup';
 import { FILTER } from '@gitroom/nestjs-libraries/sentry/sentry.exception';
-import { ChatModule } from '@gitroom/nestjs-libraries/chat/chat.module';
+// ChatModule (Mastra-backed CopilotKit) disabled — Illuminati uses its own
+// 6-agent script pipeline (apps/backend/src/agents/) and direct Claude calls
+// for AI insights / suggest-reply. Mastra was crashing at startup trying to
+// bootstrap its own Postgres tables.
+// import { ChatModule } from '@gitroom/nestjs-libraries/chat/chat.module';
 import { getTemporalModule } from '@gitroom/nestjs-libraries/temporal/temporal.module';
 import { TemporalRegisterMissingSearchAttributesModule } from '@gitroom/nestjs-libraries/temporal/temporal.register';
 import { InfiniteWorkflowRegisterModule } from '@gitroom/nestjs-libraries/temporal/infinite.workflow.register';
@@ -28,7 +32,7 @@ import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
     AgentModule,
     ThirdPartyModule,
     VideoModule,
-    ChatModule,
+    // ChatModule, // disabled — see import comment
     getTemporalModule(false),
     TemporalRegisterMissingSearchAttributesModule,
     InfiniteWorkflowRegisterModule,
@@ -60,7 +64,7 @@ import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
     PublicApiModule,
     AgentModule,
     ThrottlerModule,
-    ChatModule,
+    // ChatModule, // disabled — see import comment
   ],
 })
 export class AppModule {}

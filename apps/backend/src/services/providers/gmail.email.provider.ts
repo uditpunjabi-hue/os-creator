@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+import { memoryCache } from '@gitroom/backend/services/cache/memory.cache';
 import { GoogleTokenService } from '@gitroom/backend/services/google/google-token.service';
 import type {
   EmailProvider,
@@ -102,10 +102,8 @@ export class GmailEmailProvider implements EmailProvider {
       : BRAND_SEARCH_QUERY;
 
     const cacheKey = LIST_CACHE_KEY(orgId, query?.trim() ?? '');
-    try {
-      const cached = await ioRedis.get(cacheKey);
-      if (cached) return JSON.parse(cached) as EmailThread[];
-    } catch {}
+    const cached = memoryCache.get<EmailThread[]>(cacheKey);
+    if (cached) return cached;
 
     try {
       const listRes = await fetch(
@@ -121,7 +119,7 @@ export class GmailEmailProvider implements EmailProvider {
       const list = (await listRes.json()) as GmailListResponse;
       const ids = (list.threads ?? []).map((t) => t.id);
       if (ids.length === 0) {
-        await ioRedis.set(cacheKey, '[]', 'EX', CACHE_TTL_SECONDS);
+        memoryCache.set(cacheKey, [], CACHE_TTL_SECONDS);
         return [];
       }
 
@@ -138,7 +136,7 @@ export class GmailEmailProvider implements EmailProvider {
       }
 
       threads.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
-      await ioRedis.set(cacheKey, JSON.stringify(threads), 'EX', CACHE_TTL_SECONDS);
+      memoryCache.set(cacheKey, threads, CACHE_TTL_SECONDS);
       return threads;
     } catch (e) {
       this.logger.error(`Gmail listThreads crashed: ${(e as Error).message}`);
@@ -199,12 +197,9 @@ export class GmailEmailProvider implements EmailProvider {
       return null;
     }
 
-    // Invalidate caches for this thread + list.
-    try {
-      await ioRedis.del(THREAD_CACHE_KEY(orgId, threadId));
-      const keys = await ioRedis.keys(`gmail:list:${orgId}:*`);
-      if (keys.length) await ioRedis.del(...keys);
-    } catch {}
+    // Invalidate caches for this thread + every list query for this org.
+    memoryCache.del(THREAD_CACHE_KEY(orgId, threadId));
+    memoryCache.delPattern(`gmail:list:${orgId}:*`);
 
     return this.fetchAndShapeThread(orgId, threadId, conn.token);
   }
@@ -235,14 +230,11 @@ export class GmailEmailProvider implements EmailProvider {
     token: string
   ): Promise<EmailThread | null> {
     const cacheKey = THREAD_CACHE_KEY(orgId, threadId);
-    try {
-      const cached = await ioRedis.get(cacheKey);
-      if (cached) {
-        const parsed = JSON.parse(cached) as EmailThread;
-        const meta = await this.readMeta(orgId, threadId);
-        return { ...parsed, status: meta.status, starred: meta.starred };
-      }
-    } catch {}
+    const cached = memoryCache.get<EmailThread>(cacheKey);
+    if (cached) {
+      const meta = await this.readMeta(orgId, threadId);
+      return { ...cached, status: meta.status, starred: meta.starred };
+    }
 
     const res = await fetch(`${GMAIL_BASE}/threads/${threadId}?format=full`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -259,9 +251,7 @@ export class GmailEmailProvider implements EmailProvider {
     const shaped = this.shape(t);
     const meta = await this.readMeta(orgId, threadId);
     const out: EmailThread = { ...shaped, status: meta.status, starred: meta.starred };
-    try {
-      await ioRedis.set(cacheKey, JSON.stringify(shaped), 'EX', CACHE_TTL_SECONDS);
-    } catch {}
+    memoryCache.set(cacheKey, shaped, CACHE_TTL_SECONDS);
     return out;
   }
 
@@ -306,17 +296,13 @@ export class GmailEmailProvider implements EmailProvider {
   }
 
   private async readMeta(orgId: string, threadId: string) {
-    try {
-      const raw = await ioRedis.get(META_KEY(orgId, threadId));
-      if (raw) {
-        const parsed = JSON.parse(raw) as { status?: ThreadStatus; starred?: boolean };
-        return {
-          status: parsed.status ?? ('NEW_LEAD' as ThreadStatus),
-          starred: parsed.starred ?? false,
-        };
-      }
-    } catch {}
-    return { status: 'NEW_LEAD' as ThreadStatus, starred: false };
+    const parsed = memoryCache.get<{ status?: ThreadStatus; starred?: boolean }>(
+      META_KEY(orgId, threadId)
+    );
+    return {
+      status: parsed?.status ?? ('NEW_LEAD' as ThreadStatus),
+      starred: parsed?.starred ?? false,
+    };
   }
 
   private async writeMeta(
@@ -324,9 +310,7 @@ export class GmailEmailProvider implements EmailProvider {
     threadId: string,
     meta: { status: ThreadStatus; starred: boolean }
   ) {
-    try {
-      await ioRedis.set(META_KEY(orgId, threadId), JSON.stringify(meta));
-    } catch {}
+    memoryCache.set(META_KEY(orgId, threadId), meta);
   }
 }
 
