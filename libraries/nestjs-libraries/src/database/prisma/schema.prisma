@@ -1009,22 +1009,26 @@ enum ScriptStatus {
 }
 
 model Script {
-  id             String       @id @default(uuid())
-  organizationId String
-  userId         String
-  title          String
-  format         String       @default("Reel")
-  prompt         String?
-  body           String
-  feedback       String?
-  status         ScriptStatus @default(DRAFT)
-  scheduledAt    DateTime?
-  publishedAt    DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id])
-  user           User         @relation(fields: [userId], references: [id])
-  contentPieces  ContentPiece[]
+  id              String       @id @default(uuid())
+  organizationId  String
+  userId          String
+  title           String
+  format          String       @default("Reel")
+  prompt          String?
+  body            String
+  feedback        String?
+  status          ScriptStatus @default(DRAFT)
+  pipelineStatus  String?
+  qualityScore    Int?
+  agentOutputs    Json?
+  revisions       Json?
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
+  contentPieces   ContentPiece[]
 
   @@index([organizationId])
   @@index([userId])

@@ -45,6 +45,7 @@ import { ContractsController } from '@gitroom/backend/api/routes/manager/contrac
 import { InboxController } from '@gitroom/backend/api/routes/manager/inbox.controller';
 import { ScheduleController } from '@gitroom/backend/api/routes/manager/schedule.controller';
 import { CreatorScriptsController } from '@gitroom/backend/api/routes/creator/scripts.controller';
+import { PipelineOrchestrator } from '@gitroom/backend/agents/pipeline.orchestrator';
 import {
   EMAIL_PROVIDER_TOKEN,
   MockEmailProvider,
@@ -127,6 +128,7 @@ const authenticatedController = [
     { provide: EMAIL_PROVIDER_TOKEN, useClass: MockEmailProvider },
     { provide: CALENDAR_PROVIDER_TOKEN, useClass: MockCalendarProvider },
     { provide: PUBLISHING_PROVIDER_TOKEN, useClass: MockPublishingProvider },
+    PipelineOrchestrator,
   ],
   get exports() {
     return [...this.imports, ...this.providers];
