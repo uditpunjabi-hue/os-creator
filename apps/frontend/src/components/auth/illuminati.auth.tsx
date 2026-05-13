@@ -21,6 +21,8 @@ const knownErrors: Record<string, string> = {
   google_callback: 'Google callback failed unexpectedly. Check the backend logs.',
   instagram_callback: 'Instagram callback failed unexpectedly. Check the backend logs.',
   no_code: 'OAuth provider returned no auth code (you may have denied consent).',
+  no_ig_business: 'Instagram OAuth completed, but no Facebook Page with a linked Instagram Business / Creator account was found on your account.',
+  access_denied: 'You denied access on the Meta consent screen. Reconnect and approve the requested permissions to continue.',
 };
 
 export function IlluminatiAuth() {
@@ -56,7 +58,11 @@ export function IlluminatiAuth() {
 
   useEffect(() => {
     const err = params.get('error');
-    if (err) setError(knownErrors[err] ?? `OAuth error: ${err}`);
+    const detail = params.get('detail');
+    if (err) {
+      const base = knownErrors[err] ?? `OAuth error: ${err}`;
+      setError(detail ? `${base}\n\nDetail: ${detail}` : base);
+    }
   }, [params]);
 
   const handleConnect = useCallback(
