@@ -39,6 +39,9 @@ export async function runScriptWriter(
   return callClaude<ScriptDraft>({
     systemPrompt: SYSTEM_PROMPT,
     userMessage,
-    maxTokens: 1500,
+    // Writer is the most output-heavy agent (hook + body + cta + caption +
+    // 15-20 hashtags + filming notes). 1500 was hitting truncation mid-string
+    // around 4-5 KB of JSON; 4000 leaves headroom for verbose strategies.
+    maxTokens: 4000,
   });
 }

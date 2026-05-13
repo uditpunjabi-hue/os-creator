@@ -69,7 +69,7 @@ export async function callClaude<T>({
     content?: Array<{ type: string; text?: string }>;
   };
   const raw = payload.content?.find((c) => c.type === 'text')?.text ?? '';
-  const cleaned = stripJsonFence(raw);
+  const cleaned = extractJson(raw);
   try {
     return JSON.parse(cleaned) as T;
   } catch (e) {
@@ -85,9 +85,50 @@ export async function callClaude<T>({
   }
 }
 
-function stripJsonFence(s: string): string {
-  const trimmed = s.trim();
-  // Match ```json ... ``` or ``` ... ``` with the JSON body inside.
-  const fence = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-  return fence ? fence[1].trim() : trimmed;
+/**
+ * Extract a JSON object/array from a Claude completion, tolerating common
+ * "wrapping" failure modes:
+ *   - ```json ... ``` fenced block (anywhere in the text)
+ *   - ``` ... ``` fenced block without the `json` tag
+ *   - Leading or trailing prose ("Here is the JSON:\n{...}\nLet me know...")
+ *   - Truncated response where the closing fence is missing
+ *
+ * Strategy: prefer a fenced block when one is present; otherwise slice from the
+ * first `{`/`[` to the matching final `}`/`]`. Anything outside that span is
+ * conversational fluff the model added despite the system prompt.
+ */
+export function extractJson(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+
+  // 1. Full ```json ... ``` block (with closing fence). Not anchored — the
+  //    block may follow leading prose like "Sure, here's the JSON:".
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced) return fenced[1].trim();
+
+  // 2. Opening fence but truncated — model started with ```json then ran out
+  //    of tokens before the closing fence. Strip the opener and continue.
+  const opener = trimmed.match(/^```(?:json)?\s*\n?/i);
+  const stripped = opener ? trimmed.slice(opener[0].length).trim() : trimmed;
+
+  // 3. Slice from first `{`/`[` to last `}`/`]`. Catches the "Here's the JSON:
+  //    { ... } Hope this helps!" case where there's no fence at all but prose
+  //    bookends the JSON. Works because JSON.parse needs a balanced top-level
+  //    object/array and that's exactly what these bounds capture.
+  const firstObj = stripped.indexOf('{');
+  const firstArr = stripped.indexOf('[');
+  const start =
+    firstObj === -1
+      ? firstArr
+      : firstArr === -1
+      ? firstObj
+      : Math.min(firstObj, firstArr);
+  if (start < 0) return stripped;
+
+  const lastObj = stripped.lastIndexOf('}');
+  const lastArr = stripped.lastIndexOf(']');
+  const end = Math.max(lastObj, lastArr);
+  if (end <= start) return stripped;
+
+  return stripped.slice(start, end + 1);
 }
