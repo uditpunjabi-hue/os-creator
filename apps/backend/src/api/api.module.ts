@@ -58,7 +58,11 @@ import { GmailEmailProvider } from '@gitroom/backend/services/providers/gmail.em
 import { GoogleCalendarProvider } from '@gitroom/backend/services/providers/google-calendar.provider';
 import { GoogleTokenService } from '@gitroom/backend/services/google/google-token.service';
 import { InstagramFetcherService } from '@gitroom/backend/services/instagram/instagram.fetcher.service';
+import { InstagramInsightsService } from '@gitroom/backend/services/instagram/instagram.insights.service';
+import { InstagramCompetitorService } from '@gitroom/backend/services/instagram/instagram.competitor.service';
 import { CreatorProfileController } from '@gitroom/backend/api/routes/creator/profile.controller';
+import { CreatorInsightsController } from '@gitroom/backend/api/routes/creator/insights.controller';
+import { CreatorCompetitorsController } from '@gitroom/backend/api/routes/creator/competitors.controller';
 import { AuthProviderManager } from '@gitroom/backend/services/auth/providers/providers.manager';
 import { GithubProvider } from '@gitroom/backend/services/auth/providers/github.provider';
 import { GoogleProvider } from '@gitroom/backend/services/auth/providers/google.provider';
@@ -94,6 +98,8 @@ const authenticatedController = [
   ScheduleController,
   CreatorScriptsController,
   CreatorProfileController,
+  CreatorInsightsController,
+  CreatorCompetitorsController,
   ConnectionsController,
 ];
 @Module({
@@ -137,6 +143,8 @@ const authenticatedController = [
     GmailEmailProvider,
     GoogleCalendarProvider,
     InstagramFetcherService,
+    InstagramInsightsService,
+    InstagramCompetitorService,
   ],
   get exports() {
     return [...this.imports, ...this.providers];

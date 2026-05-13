@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   TrendingUp,
   Heart,
@@ -38,48 +38,73 @@ interface IgProfile {
   recentMedia: IgMedia[];
 }
 
-const mockStats = [
-  { label: 'Followers', value: '128,420', delta: '+3.4% MoM', positive: true, icon: Users },
-  { label: 'Engagement', value: '5.8%', delta: '+0.6% vs niche', positive: true, icon: Heart },
-  { label: 'Reach (30d)', value: '2.1M', delta: '+12.1% MoM', positive: true, icon: TrendingUp },
-  { label: 'Best time', value: '6:30 PM', delta: 'Tue · Thu', positive: true, icon: Clock },
-];
+interface ContentTypePerf {
+  format: 'Reel' | 'Carousel' | 'Image' | 'Story';
+  count: number;
+  avgInteractions: number;
+  avgEngagementPct: number;
+}
 
-const mockTopPosts = [
-  { caption: '5 lighting mistakes that ruin reels', reach: 184_000, engagement: 7.2, format: 'Reel' },
-  { caption: 'My morning routine (no BS edition)', reach: 156_000, engagement: 6.4, format: 'Reel' },
-  { caption: 'Three product unboxings in 60s', reach: 141_000, engagement: 5.9, format: 'Reel' },
-];
+interface BestTime {
+  weekday: string;
+  hour: number;
+  avgInteractions: number;
+  posts: number;
+}
 
-const trend = [120_100, 120_640, 121_080, 121_700, 122_400, 123_000, 123_900, 124_700, 125_400, 126_100, 126_800, 127_400, 127_900, 128_420];
+interface FollowerTrendPoint {
+  date: string;
+  count: number;
+}
 
-const insights = [
-  { kind: 'good', icon: TrendingUp, title: 'Reels outperform carousels 3.2x', detail: 'Lean into Reels — your top 5 posts this month are all Reels with hooks in the first 2 seconds.' },
-  { kind: 'good', icon: Lightbulb, title: 'Tuesday 6:30 PM is your sweet spot', detail: 'Posts at this slot reach 38% more accounts than your average.' },
-  { kind: 'warn', icon: AlertCircle, title: 'Carousel engagement dropped 18% MoM', detail: 'Try a single bold cover slide instead of a 10-slide deep-dive — the format is taxing readers.' },
-] as const;
+interface RealInsight {
+  kind: 'good' | 'warn';
+  title: string;
+  detail: string;
+}
 
-const fmt = (n: number) =>
-  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k` : `${n}`;
+interface Insights {
+  connected: boolean;
+  engagementRate: number | null;
+  contentTypePerformance: ContentTypePerf[];
+  bestTimes: BestTime[];
+  followerTrend: FollowerTrendPoint[];
+  insights: RealInsight[];
+}
+
+const fmt = (n: number | null | undefined) => {
+  if (n == null) return '—';
+  return n >= 1_000_000
+    ? `${(n / 1_000_000).toFixed(1)}M`
+    : n >= 1_000
+    ? `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`
+    : `${n}`;
+};
+
+const formatBestTime = (t: BestTime) => {
+  const hour12 = t.hour % 12 || 12;
+  const meridiem = t.hour >= 12 ? 'PM' : 'AM';
+  return `${t.weekday} ${hour12}:00 ${meridiem}`;
+};
 
 export default function CreatorProfile() {
   const fetch = useFetch();
   const { backendUrl } = useVariables();
   const [profile, setProfile] = useState<IgProfile | null>(null);
+  const [insights, setInsights] = useState<Insights | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/creator/profile');
-        if (!res.ok) {
-          if (!cancelled) setLoading(false);
-          return;
-        }
-        const data = (await res.json()) as IgProfile;
+        const [pRes, iRes] = await Promise.all([
+          fetch('/creator/profile'),
+          fetch('/creator/insights'),
+        ]);
         if (!cancelled) {
-          setProfile(data);
+          if (pRes.ok) setProfile(await pRes.json());
+          if (iRes.ok) setInsights(await iRes.json());
           setLoading(false);
         }
       } catch {
@@ -93,68 +118,72 @@ export default function CreatorProfile() {
 
   const live = profile?.connected ?? false;
 
-  // Live stats — fall back to mock for fields the IG Graph API doesn't expose.
-  const stats = live
-    ? [
-        {
-          label: 'Followers',
-          value: profile!.followers != null ? fmt(profile!.followers) : '—',
-          delta: 'Live from Instagram',
-          positive: true,
-          icon: Users,
-        },
-        {
-          label: 'Engagement',
-          value:
-            profile!.engagementRate != null
-              ? `${profile!.engagementRate}%`
-              : '—',
-          delta: 'Avg over recent posts',
-          positive: true,
-          icon: Heart,
-        },
-        {
-          label: 'Posts',
-          value: profile!.mediaCount != null ? fmt(profile!.mediaCount) : '—',
-          delta: 'Total on profile',
-          positive: true,
-          icon: TrendingUp,
-        },
-        {
-          label: 'Best time',
-          value: '6:30 PM',
-          delta: 'Tue · Thu (heuristic)',
-          positive: true,
-          icon: Clock,
-        },
-      ]
-    : mockStats;
+  const stats = useMemo(() => {
+    if (!live) {
+      return [
+        { label: 'Followers', value: '—', delta: 'Connect IG to see live', positive: true, icon: Users },
+        { label: 'Engagement', value: '—', delta: 'Connect IG to see live', positive: true, icon: Heart },
+        { label: 'Posts', value: '—', delta: 'Connect IG to see live', positive: true, icon: TrendingUp },
+        { label: 'Best time', value: '—', delta: 'Connect IG to see live', positive: true, icon: Clock },
+      ];
+    }
+    const bestTime = insights?.bestTimes[0]
+      ? formatBestTime(insights.bestTimes[0])
+      : '—';
+    return [
+      {
+        label: 'Followers',
+        value: fmt(profile?.followers),
+        delta: 'Live from Instagram',
+        positive: true,
+        icon: Users,
+      },
+      {
+        label: 'Engagement',
+        value:
+          profile?.engagementRate != null
+            ? `${profile.engagementRate}%`
+            : '—',
+        delta: 'Across recent posts',
+        positive: true,
+        icon: Heart,
+      },
+      {
+        label: 'Posts',
+        value: fmt(profile?.mediaCount),
+        delta: 'Total on profile',
+        positive: true,
+        icon: TrendingUp,
+      },
+      {
+        label: 'Best time',
+        value: bestTime,
+        delta:
+          insights?.bestTimes[0]
+            ? `${insights.bestTimes[0].avgInteractions.toLocaleString()} avg interactions`
+            : 'Need more posts',
+        positive: true,
+        icon: Clock,
+      },
+    ];
+  }, [live, profile, insights]);
 
-  // Top posts from live media (sorted by likes+comments) or mock fallback.
-  const topPosts = live
-    ? [...profile!.recentMedia]
-        .sort(
-          (a, b) =>
-            b.likeCount + b.commentsCount - (a.likeCount + a.commentsCount)
-        )
-        .slice(0, 3)
-        .map((m) => ({
-          caption: (m.caption ?? '(no caption)').slice(0, 80),
-          reach: m.likeCount + m.commentsCount,
-          engagement:
-            profile!.followers && profile!.followers > 0
-              ? Math.round(
-                  ((m.likeCount + m.commentsCount) / profile!.followers) *
-                    100 *
-                    100
-                ) / 100
-              : 0,
-          format: m.mediaType === 'VIDEO' ? 'Reel' : m.mediaType === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Photo',
-        }))
-    : mockTopPosts;
+  const topPosts = useMemo(() => {
+    if (!live) return [];
+    return [...(profile?.recentMedia ?? [])]
+      .sort(
+        (a, b) =>
+          b.likeCount + b.commentsCount - (a.likeCount + a.commentsCount)
+      )
+      .slice(0, 3);
+  }, [live, profile]);
 
-  const max = Math.max(...trend);
-  const min = Math.min(...trend);
+  const trend = insights?.followerTrend ?? [];
+  const trendValues = trend.map((p) => p.count);
+  const max = trendValues.length ? Math.max(...trendValues) : 0;
+  const min = trendValues.length ? Math.min(...trendValues) : 0;
+  const growthDelta =
+    trendValues.length > 1 ? trendValues[trendValues.length - 1] - trendValues[0] : 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -165,7 +194,7 @@ export default function CreatorProfile() {
             <div className="truncate text-xs text-gray-500">
               {live && profile?.handle
                 ? `${profile.handle} · live from Instagram`
-                : 'Audience pulse · last 30 days'}
+                : 'Connect Instagram to see live data'}
             </div>
           </div>
           <span
@@ -176,7 +205,13 @@ export default function CreatorProfile() {
                 : 'border-gray-200 bg-white text-gray-600'
             )}
           >
-            {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : live ? '● LIVE' : '30d'}
+            {loading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : live ? (
+              '● LIVE'
+            ) : (
+              'Not connected'
+            )}
           </span>
         </div>
       </header>
@@ -192,8 +227,7 @@ export default function CreatorProfile() {
                 Connect Instagram to see your real numbers
               </div>
               <div className="mt-0.5 text-xs text-gray-600">
-                You're currently viewing sample data. Connect an Instagram Business or Creator
-                account linked to a Facebook Page to pull live followers, posts, and engagement.
+                Connect an Instagram Business or Creator account linked to a Facebook Page to pull live followers, posts, and engagement.
               </div>
             </div>
             <a
@@ -219,78 +253,77 @@ export default function CreatorProfile() {
                   <Icon className="h-3.5 w-3.5" />
                 </div>
                 <div className="text-xl font-semibold text-gray-900 lg:text-2xl">{s.value}</div>
-                <div
-                  className={cn(
-                    'text-[11px]',
-                    s.positive ? 'text-emerald-600' : 'text-rose-600'
-                  )}
-                >
-                  {s.delta}
-                </div>
+                <div className="text-[11px] text-emerald-600">{s.delta}</div>
               </div>
             );
           })}
         </div>
 
-        {/* Growth chart — sample for now (IG Graph follower history needs a paid Insights query) */}
+        {/* Follower growth — real series from IG /insights when available */}
         <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 lg:p-5">
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm font-semibold text-gray-900">Follower growth</div>
               <div className="text-[11px] text-gray-500">
-                +{fmt(trend[trend.length - 1] - trend[0])} over 14 days (sample series)
+                {trend.length > 0
+                  ? `${growthDelta >= 0 ? '+' : ''}${fmt(growthDelta)} over ${trend.length} day${trend.length === 1 ? '' : 's'} (live)`
+                  : live
+                  ? 'IG /insights returned no follower history yet — check back tomorrow.'
+                  : 'Connect Instagram to see live follower trend.'}
               </div>
             </div>
-            <div className="inline-flex rounded-full border border-gray-200 bg-white p-0.5 text-[11px] font-medium">
-              {['14d', '30d', '90d'].map((p, i) => (
-                <span
-                  key={p}
-                  className={cn(
-                    'rounded-full px-2.5 py-1',
-                    i === 0 ? 'bg-purple-600 text-white' : 'text-gray-500'
-                  )}
-                >
-                  {p}
-                </span>
-              ))}
-            </div>
           </div>
-          <svg viewBox="0 0 280 80" className="h-24 w-full" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="prof-grow" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#7C3AED" stopOpacity="0.25" />
-                <stop offset="100%" stopColor="#7C3AED" stopOpacity="0" />
-              </linearGradient>
-            </defs>
-            {(() => {
-              const pts = trend.map((v, i) => {
-                const x = (i / (trend.length - 1)) * 280;
-                const y = 80 - ((v - min) / (max - min || 1)) * 70 - 5;
-                return [x, y] as const;
-              });
-              const line = pts.map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x},${y}`).join(' ');
-              const area = `${line} L280,80 L0,80 Z`;
-              return (
-                <>
-                  <path d={area} fill="url(#prof-grow)" />
-                  <path d={line} fill="none" stroke="#7C3AED" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-                </>
-              );
-            })()}
-          </svg>
+          {trend.length >= 2 ? (
+            <svg viewBox="0 0 280 80" className="h-24 w-full" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="prof-grow" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#7C3AED" stopOpacity="0.25" />
+                  <stop offset="100%" stopColor="#7C3AED" stopOpacity="0" />
+                </linearGradient>
+              </defs>
+              {(() => {
+                const pts = trendValues.map((v, i) => {
+                  const x = (i / (trendValues.length - 1)) * 280;
+                  const y = 80 - ((v - min) / (max - min || 1)) * 70 - 5;
+                  return [x, y] as const;
+                });
+                const line = pts
+                  .map(([x, y], i) => `${i === 0 ? 'M' : 'L'}${x},${y}`)
+                  .join(' ');
+                const area = `${line} L280,80 L0,80 Z`;
+                return (
+                  <>
+                    <path d={area} fill="url(#prof-grow)" />
+                    <path
+                      d={line}
+                      fill="none"
+                      stroke="#7C3AED"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  </>
+                );
+              })()}
+            </svg>
+          ) : (
+            <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50 text-xs text-gray-400">
+              {live ? 'Not enough datapoints yet — IG insights builds the series day by day' : '—'}
+            </div>
+          )}
         </div>
 
-        {/* AI insights */}
+        {/* AI insights — computed from real posts */}
         <div className="mt-4 flex flex-col gap-2">
           <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-            AI insights
+            Insights
           </div>
-          {insights.map((ins) => {
-            const Icon = ins.icon;
+          {(insights?.insights ?? []).map((ins, i) => {
+            const Icon = ins.kind === 'good' ? Lightbulb : AlertCircle;
             const isGood = ins.kind === 'good';
             return (
               <div
-                key={ins.title}
+                key={i}
                 className={cn(
                   'flex items-start gap-3 rounded-2xl border p-3',
                   isGood
@@ -313,41 +346,85 @@ export default function CreatorProfile() {
               </div>
             );
           })}
+          {(insights?.insights?.length ?? 0) === 0 && live && (
+            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-4 text-xs text-gray-500">
+              Computing insights from your recent posts…
+            </div>
+          )}
         </div>
 
-        {/* Top posts */}
-        <div className="mt-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-            {live ? 'Top recent posts' : 'Top posts'}
-          </div>
-          <ul className="flex flex-col gap-2">
-            {topPosts.map((p, idx) => (
-              <li
-                key={`${p.caption}-${idx}`}
-                className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-bold text-purple-700">
-                  {idx + 1}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-gray-900">{p.caption}</div>
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
-                    <span>{p.format}</span>
-                    <span>·</span>
-                    <span>{live ? 'Interactions' : 'Reach'} {fmt(p.reach)}</span>
-                    <span>·</span>
-                    <span>Engagement {p.engagement}%</span>
+        {/* Content type performance */}
+        {live && (insights?.contentTypePerformance?.length ?? 0) > 0 && (
+          <div className="mt-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              By content type
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {(insights?.contentTypePerformance ?? []).map((c) => (
+                <div
+                  key={c.format}
+                  className="rounded-2xl border border-gray-200 bg-white p-4"
+                >
+                  <div className="text-[10px] uppercase tracking-wide text-gray-500">
+                    {c.format} · {c.count} post{c.count === 1 ? '' : 's'}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-gray-900">
+                    {c.avgInteractions.toLocaleString()}
+                  </div>
+                  <div className="text-[11px] text-gray-500">avg interactions</div>
+                  <div className="mt-1 text-[11px] text-emerald-600">
+                    {c.avgEngagementPct}% engagement
                   </div>
                 </div>
-              </li>
-            ))}
-            {live && topPosts.length === 0 && (
-              <li className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
-                No recent media returned by Instagram yet.
-              </li>
-            )}
-          </ul>
-        </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Top posts */}
+        {live && (
+          <div className="mt-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+              Top recent posts
+            </div>
+            <ul className="flex flex-col gap-2">
+              {topPosts.map((p, idx) => (
+                <li
+                  key={p.id}
+                  className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-bold text-purple-700">
+                    {idx + 1}
+                  </div>
+                  {p.thumbnailUrl || p.mediaUrl ? (
+                    <img
+                      src={p.thumbnailUrl ?? p.mediaUrl ?? ''}
+                      alt=""
+                      className="h-14 w-14 shrink-0 rounded-lg object-cover"
+                    />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <div className="line-clamp-2 text-sm font-medium text-gray-900">
+                      {p.caption ?? '(no caption)'}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
+                      <span>{p.mediaType === 'VIDEO' ? 'Reel' : p.mediaType === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image'}</span>
+                      <span>·</span>
+                      <span>♥ {fmt(p.likeCount)}</span>
+                      <span>·</span>
+                      <span>💬 {fmt(p.commentsCount)}</span>
+                    </div>
+                  </div>
+                </li>
+              ))}
+              {topPosts.length === 0 && (
+                <li className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
+                  No recent media returned by Instagram yet.
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );

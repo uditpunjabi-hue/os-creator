@@ -114,7 +114,8 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                 jakartaSans.className
               )}
             >
-              {user?.admin && <Impersonate />}
+              {/* Impersonate / debug toolbar (Add Announcement, Import Debug Post, View Errors)
+                  was Postiz admin scaffolding — Illuminati doesn't expose it. */}
               {user.tier === 'FREE' && isGeneral && billingEnabled ? (
                 <FirstBillingComponent />
               ) : (
