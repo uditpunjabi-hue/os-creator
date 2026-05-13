@@ -23,7 +23,11 @@ async function start() {
   const app = await NestFactory.create(AppModule, {
     rawBody: true,
     cors: {
-      ...(!process.env.NOT_SECURED ? { credentials: true } : {}),
+      // Always send Access-Control-Allow-Credentials: true. We use the auth
+      // cookie even in NOT_SECURED=true mode (just without the secure flag),
+      // so the frontend always needs credentials. The original Postiz design
+      // toggled this for a header-only-auth deployment we don't ship.
+      credentials: true,
       allowedHeaders: [
         'Content-Type',
         'Authorization',
