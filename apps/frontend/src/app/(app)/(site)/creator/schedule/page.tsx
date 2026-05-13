@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -11,44 +11,31 @@ import {
   Plus,
   Instagram,
   Music2,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { cn } from '@gitroom/frontend/lib/utils';
 
-type Platform = 'instagram' | 'tiktok';
-type Status = 'SCHEDULED' | 'DRAFT' | 'PUBLISHED';
+type Platform = 'instagram' | 'tiktok' | 'youtube' | 'linkedin' | 'x';
+type Status = 'SCHEDULED' | 'DRAFT' | 'PUBLISHED' | 'FAILED';
+type Source = 'POST' | 'CALENDAR';
 
 interface SchedItem {
   id: string;
   title: string;
-  format: 'Reel' | 'Carousel' | 'Story';
+  format: string;
   status: Status;
+  source: Source;
   platforms: Platform[];
   scheduledAt: Date;
 }
 
-const today = new Date();
-today.setHours(0, 0, 0, 0);
-const addDays = (n: number, hour = 18, minute = 30) => {
-  const d = new Date(today);
-  d.setDate(d.getDate() + n);
-  d.setHours(hour, minute, 0, 0);
-  return d;
-};
-
-const items: SchedItem[] = [
-  { id: 's1', title: 'Three product unboxings in 60s', format: 'Reel', status: 'SCHEDULED', platforms: ['instagram', 'tiktok'], scheduledAt: addDays(2, 18, 30) },
-  { id: 's2', title: 'The one prompt that changed my workflow', format: 'Reel', status: 'SCHEDULED', platforms: ['instagram', 'tiktok'], scheduledAt: addDays(4, 19, 0) },
-  { id: 's3', title: 'My morning routine (no BS edition)', format: 'Reel', status: 'SCHEDULED', platforms: ['instagram'], scheduledAt: addDays(6, 8, 30) },
-  { id: 's4', title: 'Behind the scenes — Bloom campaign', format: 'Carousel', status: 'DRAFT', platforms: ['instagram'], scheduledAt: addDays(10, 12, 0) },
-  { id: 's5', title: '5 lighting mistakes that ruin reels', format: 'Reel', status: 'PUBLISHED', platforms: ['instagram', 'tiktok'], scheduledAt: addDays(-3, 18, 30) },
-];
-
-const queueInit: { id: string; title: string; format: 'Reel' | 'Carousel' | 'Story' }[] = [
-  { id: 'q1', title: 'Day in the life: solo creator + AI manager', format: 'Reel' },
-  { id: 'q2', title: 'Q&A — onboarding tips', format: 'Carousel' },
-  { id: 'q3', title: 'Why your hook fails in 3 seconds', format: 'Reel' },
-];
+interface QueueItem {
+  id: string;
+  title: string;
+  format: string;
+}
 
 const fmtTime = (d: Date) =>
   d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -63,16 +50,106 @@ const statusMeta: Record<Status, { chipClass: string; barClass: string }> = {
   SCHEDULED: { chipClass: 'bg-purple-100 text-purple-700', barClass: 'border-purple-300 bg-purple-50' },
   DRAFT: { chipClass: 'bg-gray-100 text-gray-700', barClass: 'border-gray-200 bg-white' },
   PUBLISHED: { chipClass: 'bg-blue-100 text-blue-700', barClass: 'border-blue-200 bg-blue-50/60' },
+  FAILED: { chipClass: 'bg-rose-100 text-rose-700', barClass: 'border-rose-200 bg-rose-50/60' },
 };
 
+const sourceMeta: Record<Source, { dot: string }> = {
+  POST: { dot: 'bg-purple-500' },
+  CALENDAR: { dot: 'bg-amber-500' }, // gold for Google Calendar events
+};
+
+const today = new Date();
+today.setHours(0, 0, 0, 0);
+
 export default function SchedulePage() {
+  const fetch = useFetch();
   const [view, setView] = useState<'WEEK' | 'MONTH'>('WEEK');
   const [cursor, setCursor] = useState<Date>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return d;
   });
-  const [queue, setQueue] = useState(queueInit);
+  const [items, setItems] = useState<SchedItem[]>([]);
+  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const reload = useCallback(async () => {
+    try {
+      const [sRes, cRes] = await Promise.all([
+        fetch('/creator/schedule'),
+        fetch('/creator/content-pieces'),
+      ]);
+      const merged: SchedItem[] = [];
+      if (sRes.ok) {
+        const data = (await sRes.json()) as {
+          posts: Array<{
+            id: string;
+            caption: string;
+            kind: string;
+            status: Status;
+            platforms: string[];
+            scheduledAt: string;
+          }>;
+          events: Array<{
+            id: string;
+            title: string;
+            startsAt: string;
+            kind: string;
+          }>;
+        };
+        for (const p of data.posts) {
+          merged.push({
+            id: `post-${p.id}`,
+            title: p.caption.slice(0, 80),
+            format:
+              p.kind === 'REEL'
+                ? 'Reel'
+                : p.kind === 'CAROUSEL'
+                ? 'Carousel'
+                : p.kind === 'STORY'
+                ? 'Story'
+                : 'Image',
+            status: p.status,
+            source: 'POST',
+            platforms: (p.platforms || []) as Platform[],
+            scheduledAt: new Date(p.scheduledAt),
+          });
+        }
+        for (const e of data.events) {
+          merged.push({
+            id: `cal-${e.id}`,
+            title: e.title,
+            format: 'Calendar',
+            status: 'SCHEDULED',
+            source: 'CALENDAR',
+            platforms: [],
+            scheduledAt: new Date(e.startsAt),
+          });
+        }
+      }
+      setItems(merged);
+
+      if (cRes.ok) {
+        const pieces = (await cRes.json()) as Array<{
+          id: string;
+          title: string;
+          format: string;
+          status: string;
+        }>;
+        setQueue(
+          pieces
+            .filter((p) => p.status === 'READY')
+            .map((p) => ({ id: p.id, title: p.title, format: p.format }))
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [fetch]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const weekDays = useMemo(() => {
     const start = new Date(cursor);
@@ -89,7 +166,7 @@ export default function SchedulePage() {
       items
         .filter((i) => i.status !== 'PUBLISHED' && i.scheduledAt >= today)
         .sort((a, b) => +a.scheduledAt - +b.scheduledAt),
-    []
+    [items]
   );
 
   const move = (id: string, dir: -1 | 1) => {

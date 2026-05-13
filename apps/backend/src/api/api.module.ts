@@ -63,6 +63,7 @@ import { InstagramCompetitorService } from '@gitroom/backend/services/instagram/
 import { CreatorProfileController } from '@gitroom/backend/api/routes/creator/profile.controller';
 import { CreatorInsightsController } from '@gitroom/backend/api/routes/creator/insights.controller';
 import { CreatorCompetitorsController } from '@gitroom/backend/api/routes/creator/competitors.controller';
+import { CreatorContentController } from '@gitroom/backend/api/routes/creator/content.controller';
 import { AuthProviderManager } from '@gitroom/backend/services/auth/providers/providers.manager';
 import { GithubProvider } from '@gitroom/backend/services/auth/providers/github.provider';
 import { GoogleProvider } from '@gitroom/backend/services/auth/providers/google.provider';
@@ -100,6 +101,7 @@ const authenticatedController = [
   CreatorProfileController,
   CreatorInsightsController,
   CreatorCompetitorsController,
+  CreatorContentController,
   ConnectionsController,
 ];
 @Module({

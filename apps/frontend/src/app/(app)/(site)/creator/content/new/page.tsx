@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Video,
   Scissors,
@@ -11,16 +11,18 @@ import {
   ChevronRight,
   Sparkles,
   Clock,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { cn } from '@gitroom/frontend/lib/utils';
 
-type Stage = 'IDEA' | 'FILMING' | 'EDITING' | 'READY' | 'SCHEDULED';
+type Stage = 'IDEA' | 'FILMING' | 'EDITING' | 'READY' | 'SCHEDULED' | 'PUBLISHED';
 
 interface Piece {
   id: string;
   title: string;
-  format: 'Reel' | 'Carousel' | 'Story' | 'Photo';
+  format: string;
   stage: Stage;
   hook: string;
   scheduledFor?: string;
@@ -28,45 +30,49 @@ interface Piece {
   checks: { film: boolean; edit: boolean; captions: boolean; finalReview: boolean };
 }
 
-const initialPieces: Piece[] = [
-  {
-    id: 'p1',
-    title: 'Behind the scenes — Bloom campaign',
-    format: 'Reel',
-    stage: 'FILMING',
-    hook: 'We shot a 6-figure campaign in 1 day. Here\'s how.',
-    approvedAt: 'Approved yesterday',
-    checks: { film: false, edit: false, captions: false, finalReview: false },
+interface ApiPiece {
+  id: string;
+  title: string;
+  format: string;
+  status: Stage;
+  hook: string | null;
+  scheduledAt: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  checklist: { film?: boolean; edit?: boolean; captions?: boolean; finalReview?: boolean } | null;
+  script?: { id: string; title: string } | null;
+}
+
+const fmtAgo = (iso: string) => {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return 'just now';
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? '1 day ago' : `${d} days ago`;
+};
+
+const fmtScheduled = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString([], { weekday: 'short' })} · ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+};
+
+const shapeFromApi = (r: ApiPiece): Piece => ({
+  id: r.id,
+  title: r.title,
+  format: r.format,
+  stage: r.status,
+  hook: r.hook ?? '',
+  scheduledFor: r.scheduledAt ? fmtScheduled(r.scheduledAt) : undefined,
+  approvedAt: r.approvedAt ? `Approved ${fmtAgo(r.approvedAt)}` : `Created ${fmtAgo(r.createdAt)}`,
+  checks: {
+    film: !!r.checklist?.film,
+    edit: !!r.checklist?.edit,
+    captions: !!r.checklist?.captions,
+    finalReview: !!r.checklist?.finalReview,
   },
-  {
-    id: 'p2',
-    title: 'The one prompt that changed my workflow',
-    format: 'Reel',
-    stage: 'EDITING',
-    hook: 'One AI prompt that 10x\'d my output.',
-    approvedAt: 'Approved 2 days ago',
-    checks: { film: true, edit: false, captions: false, finalReview: false },
-  },
-  {
-    id: 'p3',
-    title: 'My morning routine (no BS edition)',
-    format: 'Reel',
-    stage: 'READY',
-    hook: 'Wake 6:30, coffee, journaling, then content sprint.',
-    approvedAt: 'Approved 3 days ago',
-    checks: { film: true, edit: true, captions: true, finalReview: false },
-  },
-  {
-    id: 'p4',
-    title: 'Three product unboxings in 60s',
-    format: 'Reel',
-    stage: 'SCHEDULED',
-    hook: 'Three unboxings, sixty seconds, one rule.',
-    approvedAt: 'Approved 4 days ago',
-    scheduledFor: 'Tue · 6:30 PM',
-    checks: { film: true, edit: true, captions: true, finalReview: true },
-  },
-];
+});
 
 const stageMeta: Record<Stage, { label: string; chipClass: string; barClass: string }> = {
   IDEA: { label: 'Idea', chipClass: 'bg-gray-100 text-gray-700', barClass: 'bg-gray-300' },
@@ -74,6 +80,7 @@ const stageMeta: Record<Stage, { label: string; chipClass: string; barClass: str
   EDITING: { label: 'Editing', chipClass: 'bg-amber-100 text-amber-700', barClass: 'bg-amber-500' },
   READY: { label: 'Ready', chipClass: 'bg-emerald-100 text-emerald-700', barClass: 'bg-emerald-500' },
   SCHEDULED: { label: 'Scheduled', chipClass: 'bg-purple-100 text-purple-700', barClass: 'bg-purple-500' },
+  PUBLISHED: { label: 'Published', chipClass: 'bg-blue-100 text-blue-700', barClass: 'bg-blue-500' },
 };
 
 const checklistRows: Array<{
@@ -94,8 +101,33 @@ const progressOf = (p: Piece) => {
 };
 
 export default function CreatePage() {
-  const [pieces, setPieces] = useState(initialPieces);
-  const [activeId, setActiveId] = useState<string>(initialPieces[0]?.id ?? '');
+  const fetch = useFetch();
+  const [pieces, setPieces] = useState<Piece[]>([]);
+  const [activeId, setActiveId] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/creator/content-pieces');
+        if (!res.ok) {
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        const rows = (await res.json()) as ApiPiece[];
+        if (cancelled) return;
+        const shaped = rows.map(shapeFromApi);
+        setPieces(shaped);
+        if (shaped[0]) setActiveId(shaped[0].id);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetch]);
 
   const active = pieces.find((p) => p.id === activeId) ?? pieces[0];
 
@@ -125,6 +157,16 @@ export default function CreatePage() {
 
       <div className="flex flex-1 flex-col overflow-hidden lg:flex-row">
         <aside className="border-b border-gray-200 bg-white lg:w-[360px] lg:shrink-0 lg:border-b-0 lg:border-r">
+          {loading && pieces.length === 0 && (
+            <div className="flex items-center justify-center gap-2 px-4 py-8 text-xs text-gray-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading content pieces…
+            </div>
+          )}
+          {!loading && pieces.length === 0 && (
+            <div className="px-4 py-8 text-center text-xs text-gray-500">
+              No content in production yet. Approve a script to start the filming workflow.
+            </div>
+          )}
           <ul className="flex flex-col">
             {pieces.map((p) => {
               const prog = progressOf(p);

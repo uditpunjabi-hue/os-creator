@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   Sparkles,
@@ -32,24 +32,12 @@ type Filter = 'ALL' | Status;
 interface ScriptItem {
   id: string;
   title: string;
-  format: 'Reel' | 'Carousel' | 'Story' | 'Photo';
+  format: string;
   status: Status;
   updatedAt: string;
-  hook: string;
-  feedback?: string;
+  body: string;
+  feedback?: string | null;
 }
-
-const scripts: ScriptItem[] = [
-  { id: '1', title: '5 lighting mistakes that ruin reels', format: 'Reel', status: 'PUBLISHED', updatedAt: '2 days ago', hook: 'Your reel looks amateur because of THIS one light' },
-  { id: '2', title: 'Behind the scenes — Bloom campaign', format: 'Reel', status: 'APPROVED', updatedAt: '4h ago', hook: 'We shot a 6-figure campaign in 1 day. Here\'s how.' },
-  { id: '3', title: 'My gear list at $1k', format: 'Carousel', status: 'IN_REVIEW', updatedAt: '1h ago', hook: 'Slide 1: the entire kit fits in a shoebox.' },
-  { id: '4', title: 'Three product unboxings in 60s', format: 'Reel', status: 'SCHEDULED', updatedAt: 'Yesterday', hook: 'Three unboxings, sixty seconds, one rule.' },
-  { id: '5', title: 'Why your hook fails in 3 seconds', format: 'Reel', status: 'DRAFT', updatedAt: '3h ago', hook: 'People scroll past your content because of THIS' },
-  { id: '6', title: 'Day in the life: solo creator + AI manager', format: 'Reel', status: 'DRAFT', updatedAt: '5h ago', hook: 'I run a 6-figure studio with one human (me).' },
-  { id: '7', title: 'How I price brand deals (real numbers)', format: 'Carousel', status: 'REJECTED', updatedAt: '2 days ago', hook: 'Reels start at $4,200. Here\'s why.', feedback: 'Sharing pricing publicly could undercut future negotiations. Rework as principles, not numbers.' },
-  { id: '8', title: 'My morning routine (no BS edition)', format: 'Reel', status: 'PUBLISHED', updatedAt: 'Last week', hook: 'Wake 6:30, coffee, journaling, then content sprint.' },
-  { id: '9', title: 'The one prompt that changed my workflow', format: 'Reel', status: 'APPROVED', updatedAt: '2h ago', hook: 'One AI prompt that 10x\'d my output.' },
-];
 
 const statusMeta: Record<Status, { label: string; chipClass: string; dotClass: string }> = {
   DRAFT: { label: 'Draft', chipClass: 'bg-gray-100 text-gray-700', dotClass: 'bg-gray-400' },
@@ -69,10 +57,64 @@ const filters: { key: Filter; label: string }[] = [
   { key: 'PUBLISHED', label: 'Published' },
 ];
 
+const fmtAgo = (iso: string) => {
+  const ms = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString();
+};
+
+const firstLine = (body: string) =>
+  (body.match(/Hook:\s*(.+)/i)?.[1] ?? body.split('\n').find((l) => l.trim()) ?? '').slice(0, 160);
+
 export default function ScriptsPage() {
+  const fetch = useFetch();
+  const [scripts, setScripts] = useState<ScriptItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [q, setQ] = useState('');
   const [genOpen, setGenOpen] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const res = await fetch('/creator/scripts');
+      if (!res.ok) {
+        setScripts([]);
+        return;
+      }
+      const rows = (await res.json()) as Array<{
+        id: string;
+        title: string;
+        format: string;
+        body: string;
+        feedback: string | null;
+        status: Status;
+        updatedAt: string;
+      }>;
+      setScripts(
+        rows.map((r) => ({
+          id: r.id,
+          title: r.title,
+          format: r.format,
+          status: r.status,
+          updatedAt: r.updatedAt,
+          body: r.body,
+          feedback: r.feedback,
+        }))
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [fetch]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -90,7 +132,7 @@ export default function ScriptsPage() {
           <div className="min-w-0">
             <div className="text-lg font-semibold text-gray-900">Scripts</div>
             <div className="truncate text-xs text-gray-500">
-              {filtered.length} of {scripts.length} · AI drafts, your review, your voice
+              {loading ? 'Loading…' : `${filtered.length} of ${scripts.length} · AI drafts, your review, your voice`}
             </div>
           </div>
           <Button className="h-11 shrink-0" onClick={() => setGenOpen((v) => !v)}>
@@ -130,7 +172,7 @@ export default function ScriptsPage() {
       </header>
 
       {genOpen && (
-        <GeneratePanel onClose={() => setGenOpen(false)} />
+        <GeneratePanel onClose={() => { setGenOpen(false); reload(); }} />
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-3 lg:px-8 lg:py-5">
@@ -155,7 +197,7 @@ export default function ScriptsPage() {
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5 group-hover:text-gray-500" />
                   </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-gray-500">{s.hook}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-gray-500">{firstLine(s.body)}</p>
                   <div className="mt-3 flex items-center gap-2 text-[11px] text-gray-400">
                     <span
                       className={cn(
@@ -168,7 +210,7 @@ export default function ScriptsPage() {
                     <span>·</span>
                     <span>{s.format}</span>
                     <span>·</span>
-                    <span>{s.updatedAt}</span>
+                    <span>{fmtAgo(s.updatedAt)}</span>
                   </div>
                   {s.feedback && (
                     <div className="mt-2 rounded-lg border border-rose-100 bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700">

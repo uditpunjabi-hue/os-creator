@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpException,
   Logger,
   Post,
@@ -11,6 +12,7 @@ import { Response } from 'express';
 import { Organization, User } from '@prisma/client';
 import { GetOrgFromRequest } from '@gitroom/nestjs-libraries/user/org.from.request';
 import { GetUserFromRequest } from '@gitroom/nestjs-libraries/user/user.from.request';
+import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
 import { PipelineOrchestrator } from '@gitroom/backend/agents/pipeline.orchestrator';
 import type { PipelineRequest } from '@gitroom/backend/agents/types';
 
@@ -19,7 +21,34 @@ import type { PipelineRequest } from '@gitroom/backend/agents/types';
 export class CreatorScriptsController {
   private readonly logger = new Logger(CreatorScriptsController.name);
 
-  constructor(private orchestrator: PipelineOrchestrator) {}
+  constructor(
+    private orchestrator: PipelineOrchestrator,
+    private prisma: PrismaService
+  ) {}
+
+  /** Returns every Script row for the org, newest first. */
+  @Get('/')
+  async list(@GetOrgFromRequest() org: Organization) {
+    return this.prisma.script.findMany({
+      where: { organizationId: org.id },
+      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        format: true,
+        prompt: true,
+        body: true,
+        feedback: true,
+        status: true,
+        pipelineStatus: true,
+        qualityScore: true,
+        scheduledAt: true,
+        publishedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+  }
 
   /**
    * Streams NDJSON events from the 6-agent pipeline. One JSON object per line.
