@@ -13,6 +13,11 @@ import {
 } from 'lucide-react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
+import {
+  Skeleton,
+  SkeletonList,
+  SkeletonStatGrid,
+} from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
 
 interface IgMedia {
@@ -63,6 +68,21 @@ interface RealInsight {
   detail: string;
 }
 
+interface AiInsightCard {
+  title: string;
+  detail: string;
+  suggestedPrompt: string;
+}
+
+interface AiInsights {
+  connected: boolean;
+  generatedAt: string | null;
+  contentDna: AiInsightCard[];
+  growthOpportunities: AiInsightCard[];
+  audiencePulse: AiInsightCard[];
+  contentGaps: AiInsightCard[];
+}
+
 interface Insights {
   connected: boolean;
   engagementRate: number | null;
@@ -92,6 +112,8 @@ export default function CreatorProfile() {
   const { backendUrl } = useVariables();
   const [profile, setProfile] = useState<IgProfile | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
+  const [ai, setAi] = useState<AiInsights | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -115,6 +137,27 @@ export default function CreatorProfile() {
       cancelled = true;
     };
   }, [fetch]);
+
+  // AI Content DNA: fire-and-forget after the page renders. Cached server-side
+  // for 30 minutes so reloads are instant after the first call.
+  useEffect(() => {
+    if (!profile?.connected) return;
+    let cancelled = false;
+    setAiLoading(true);
+    (async () => {
+      try {
+        const res = await fetch('/creator/ai-insights');
+        if (!cancelled && res.ok) {
+          setAi((await res.json()) as AiInsights);
+        }
+      } finally {
+        if (!cancelled) setAiLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetch, profile?.connected]);
 
   const live = profile?.connected ?? false;
 
@@ -239,7 +282,20 @@ export default function CreatorProfile() {
           </div>
         )}
 
+        {loading ? (
+          <>
+            <SkeletonStatGrid count={4} />
+            <div className="mt-4"><Skeleton className="h-32 w-full rounded-2xl" /></div>
+            <div className="mt-4 flex flex-col gap-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-20 w-full rounded-2xl" />
+              <Skeleton className="h-20 w-full rounded-2xl" />
+            </div>
+          </>
+        ) : null}
+
         {/* Stat tiles */}
+        {!loading && (
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
           {stats.map((s) => {
             const Icon = s.icon;
@@ -258,7 +314,10 @@ export default function CreatorProfile() {
             );
           })}
         </div>
+        )}
 
+        {!loading && (
+        <>
         {/* Follower growth — real series from IG /insights when available */}
         <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4 lg:p-5">
           <div className="flex items-center justify-between">
@@ -353,6 +412,57 @@ export default function CreatorProfile() {
           )}
         </div>
 
+        {/* AI Content DNA — Claude analyses your real posts */}
+        {live && (
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-purple-700">
+                  <Lightbulb className="h-3 w-3" /> AI analysis · powered by Claude
+                </div>
+                {ai?.generatedAt && (
+                  <div className="text-[10px] text-gray-400">
+                    Generated {new Date(ai.generatedAt).toLocaleString()}
+                  </div>
+                )}
+              </div>
+              <button
+                disabled={aiLoading}
+                onClick={async () => {
+                  setAiLoading(true);
+                  try {
+                    const r = await fetch('/creator/ai-insights?refresh=1');
+                    if (r.ok) setAi(await r.json());
+                  } finally {
+                    setAiLoading(false);
+                  }
+                }}
+                className="text-[11px] font-medium text-purple-600 hover:text-purple-700 disabled:opacity-50"
+              >
+                {aiLoading ? 'Refreshing…' : 'Refresh'}
+              </button>
+            </div>
+
+            {aiLoading && !ai && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Skeleton className="h-24 w-full rounded-2xl" />
+                <Skeleton className="h-24 w-full rounded-2xl" />
+                <Skeleton className="h-24 w-full rounded-2xl" />
+                <Skeleton className="h-24 w-full rounded-2xl" />
+              </div>
+            )}
+
+            {ai && (
+              <div className="flex flex-col gap-4">
+                <AiInsightGroup label="Your content DNA" cards={ai.contentDna} accent="#7C3AED" />
+                <AiInsightGroup label="Growth opportunities" cards={ai.growthOpportunities} accent="#F59E0B" />
+                <AiInsightGroup label="Audience pulse" cards={ai.audiencePulse} accent="#10B981" />
+                <AiInsightGroup label="Content gaps" cards={ai.contentGaps} accent="#EF4444" />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Content type performance */}
         {live && (insights?.contentTypePerformance?.length ?? 0) > 0 && (
           <div className="mt-4">
@@ -425,6 +535,54 @@ export default function CreatorProfile() {
             </ul>
           </div>
         )}
+        </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AiInsightGroup({
+  label,
+  cards,
+  accent,
+}: {
+  label: string;
+  cards: AiInsightCard[];
+  accent: string;
+}) {
+  if (!cards || cards.length === 0) return null;
+  return (
+    <div>
+      <div
+        className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider"
+        style={{ color: accent }}
+      >
+        {label}
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {cards.map((c, i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-2 rounded-2xl border border-gray-200 bg-white p-4"
+            style={{ borderLeft: `3px solid ${accent}` }}
+          >
+            <div className="text-sm font-semibold text-gray-900">{c.title}</div>
+            <div className="text-xs leading-relaxed text-gray-600">{c.detail}</div>
+            {c.suggestedPrompt && (
+              <a
+                href={`/creator/content/scripts?prompt=${encodeURIComponent(c.suggestedPrompt)}`}
+                className="mt-1 inline-flex items-center gap-1 self-start rounded-full px-3 py-1 text-[11px] font-semibold transition-colors"
+                style={{
+                  backgroundColor: `${accent}22`,
+                  color: accent,
+                }}
+              >
+                Act on this →
+              </a>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

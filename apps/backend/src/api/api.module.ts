@@ -59,7 +59,9 @@ import { GoogleCalendarProvider } from '@gitroom/backend/services/providers/goog
 import { GoogleTokenService } from '@gitroom/backend/services/google/google-token.service';
 import { InstagramFetcherService } from '@gitroom/backend/services/instagram/instagram.fetcher.service';
 import { InstagramInsightsService } from '@gitroom/backend/services/instagram/instagram.insights.service';
+import { InstagramAiInsightsService } from '@gitroom/backend/services/instagram/instagram.ai.insights.service';
 import { InstagramCompetitorService } from '@gitroom/backend/services/instagram/instagram.competitor.service';
+import { GmailSuggestService } from '@gitroom/backend/services/email/gmail.suggest.service';
 import { CreatorProfileController } from '@gitroom/backend/api/routes/creator/profile.controller';
 import { CreatorInsightsController } from '@gitroom/backend/api/routes/creator/insights.controller';
 import { CreatorCompetitorsController } from '@gitroom/backend/api/routes/creator/competitors.controller';
@@ -146,7 +148,9 @@ const authenticatedController = [
     GoogleCalendarProvider,
     InstagramFetcherService,
     InstagramInsightsService,
+    InstagramAiInsightsService,
     InstagramCompetitorService,
+    GmailSuggestService,
   ],
   get exports() {
     return [...this.imports, ...this.providers];

@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { SkeletonList } from '@gitroom/frontend/components/ui/skeleton';
 import {
   useInboxThreads,
   useInboxTemplates,
@@ -95,8 +97,8 @@ export default function InboxPage() {
           )}
         >
           {isLoading && !threads ? (
-            <div className="flex items-center justify-center py-12 text-sm text-gray-400">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading threads…
+            <div className="p-4">
+              <SkeletonList count={6} />
             </div>
           ) : (threads ?? []).length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-gray-500">
@@ -169,13 +171,47 @@ function ThreadRow({
   );
 }
 
+interface AiReplyOption {
+  stance: 'interested' | 'info_request' | 'decline';
+  label: string;
+  subject: string;
+  body: string;
+  why: string;
+}
+
 function ThreadView({ thread, onBack }: { thread: EmailThread; onBack: () => void }) {
   const { data: templates } = useInboxTemplates();
   const { replyToThread, setThreadStatus, setThreadStarred } = useManagerMutations();
+  const fetch = useFetch();
   const [replyBody, setReplyBody] = useState('');
   const [sending, setSending] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
+  const [aiOptions, setAiOptions] = useState<AiReplyOption[] | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const meta = statusMeta[thread.status];
+
+  const suggestReply = async () => {
+    setAiLoading(true);
+    setAiError(null);
+    setAiOptions(null);
+    try {
+      const res = await fetch(`/manager/inbox/threads/${thread.id}/suggest-reply`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        setAiError(text.slice(0, 200) || `Suggest failed (${res.status})`);
+        return;
+      }
+      const data = (await res.json()) as { options: AiReplyOption[] };
+      setAiOptions(data.options ?? []);
+    } catch (e) {
+      setAiError((e as Error).message);
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   const applyTemplate = (templateId: string) => {
     const tpl = templates?.find((t) => t.id === templateId);
@@ -286,6 +322,59 @@ function ThreadView({ thread, onBack }: { thread: EmailThread; onBack: () => voi
       </div>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm">
+        {/* AI Suggest Reply — Claude generates 3 stance variants */}
+        <div className="mb-3 rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50 to-white p-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-purple-700">
+              <Sparkles className="h-3.5 w-3.5" /> AI Suggest Reply
+            </div>
+            <Button
+              onClick={suggestReply}
+              disabled={aiLoading}
+              className="h-8 px-3 text-xs"
+              style={{ backgroundColor: '#F59E0B' }}
+            >
+              {aiLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Draft 3 replies'}
+            </Button>
+          </div>
+          {aiError && (
+            <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs text-rose-700">
+              {aiError}
+            </div>
+          )}
+          {aiOptions && aiOptions.length > 0 && (
+            <div className="mt-3 flex flex-col gap-2">
+              {aiOptions.map((opt, i) => (
+                <button
+                  key={i}
+                  onClick={() => setReplyBody(opt.body)}
+                  className="flex flex-col gap-1.5 rounded-xl border border-gray-200 bg-white p-3 text-left transition-colors hover:border-purple-300"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-gray-900">{opt.label}</div>
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                        opt.stance === 'interested'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : opt.stance === 'info_request'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-gray-100 text-gray-700'
+                      )}
+                    >
+                      {opt.stance.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <div className="line-clamp-3 text-xs text-gray-700">{opt.body}</div>
+                  {opt.why && (
+                    <div className="text-[11px] italic text-gray-500">Why: {opt.why}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
         {templates && templates.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <span className="text-[11px] text-gray-400">

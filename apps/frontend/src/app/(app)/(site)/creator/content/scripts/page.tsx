@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
   Sparkles,
   Plus,
@@ -24,6 +25,7 @@ import {
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
+import { SkeletonList } from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
 
 type Status = 'DRAFT' | 'IN_REVIEW' | 'APPROVED' | 'SCHEDULED' | 'PUBLISHED' | 'REJECTED';
@@ -74,11 +76,23 @@ const firstLine = (body: string) =>
 
 export default function ScriptsPage() {
   const fetch = useFetch();
+  const params = useSearchParams();
   const [scripts, setScripts] = useState<ScriptItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('ALL');
   const [q, setQ] = useState('');
   const [genOpen, setGenOpen] = useState(false);
+  const [prefillPrompt, setPrefillPrompt] = useState<string>('');
+
+  // Deep-link: /creator/content/scripts?prompt=<text> opens the Generate panel
+  // with the prompt pre-filled. Used by the "Act on this" CTAs on Profile.
+  useEffect(() => {
+    const p = params.get('prompt');
+    if (p) {
+      setPrefillPrompt(p);
+      setGenOpen(true);
+    }
+  }, [params]);
 
   const reload = useCallback(async () => {
     try {
@@ -172,10 +186,19 @@ export default function ScriptsPage() {
       </header>
 
       {genOpen && (
-        <GeneratePanel onClose={() => { setGenOpen(false); reload(); }} />
+        <GeneratePanel
+          initialPrompt={prefillPrompt}
+          onClose={() => { setGenOpen(false); setPrefillPrompt(''); reload(); }}
+        />
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-3 lg:px-8 lg:py-5">
+        {loading && (
+          <div className="lg:grid lg:grid-cols-2 lg:gap-3 xl:grid-cols-3">
+            <SkeletonList count={6} />
+          </div>
+        )}
+        {!loading && (
         <ul className="flex flex-col gap-2 lg:grid lg:grid-cols-2 lg:gap-3 xl:grid-cols-3">
           {filtered.map((s) => (
             <li key={s.id}>
@@ -222,8 +245,9 @@ export default function ScriptsPage() {
             </li>
           ))}
         </ul>
+        )}
 
-        {filtered.length === 0 && (
+        {!loading && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-16 text-center">
             <div className="rounded-full bg-purple-100 p-3 text-purple-600">
               <Sparkles className="h-5 w-5" />
@@ -308,9 +332,12 @@ interface AgentOutputs {
 const TONES = ['educational', 'entertaining', 'inspirational', 'promotional'] as const;
 const CONTENT_TYPES = ['reel', 'post', 'story', 'carousel'] as const;
 
-function GeneratePanel({ onClose }: { onClose: () => void }) {
+function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initialPrompt?: string }) {
   const { backendUrl } = useVariables();
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(initialPrompt ?? '');
+  useEffect(() => {
+    if (initialPrompt) setPrompt(initialPrompt);
+  }, [initialPrompt]);
   const [contentType, setContentType] = useState<(typeof CONTENT_TYPES)[number]>('reel');
   const [tone, setTone] = useState<(typeof TONES)[number]>('educational');
   const [status, setStatus] = useState<Record<AgentKey, AgentStatus>>({

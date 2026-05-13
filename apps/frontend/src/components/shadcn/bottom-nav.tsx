@@ -63,15 +63,20 @@ export const BottomNav: React.FC = () => {
             key={tab.href}
             href={tab.href}
             className={cn(
-              'flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors',
+              'flex flex-1 flex-col items-center justify-center gap-1 transition-colors',
               'min-h-[44px]',
-              active ? 'text-purple-600' : 'text-gray-500 hover:text-gray-900'
+              active
+                ? 'text-[#F59E0B] font-semibold'
+                : 'text-gray-500 hover:text-gray-900 font-medium'
             )}
             aria-label={tab.label}
             aria-current={active ? 'page' : undefined}
           >
-            <Icon className={cn('h-5 w-5', active && 'stroke-[2.4]')} />
-            <span>{tab.label}</span>
+            <Icon
+              className={cn('h-6 w-6', active && 'stroke-[2.5]')}
+              strokeWidth={active ? 2.5 : 1.8}
+            />
+            <span className="text-[11px] leading-none">{tab.label}</span>
           </Link>
         );
       })}

@@ -34,10 +34,28 @@ class SetStarredDto {
   starred: boolean;
 }
 
+import { GmailSuggestService } from '@gitroom/backend/services/email/gmail.suggest.service';
+
 @ApiTags('Manager')
 @Controller('/manager/inbox')
 export class InboxController {
-  constructor(@Inject(EMAIL_PROVIDER_TOKEN) private email: EmailProvider) {}
+  constructor(
+    @Inject(EMAIL_PROVIDER_TOKEN) private email: EmailProvider,
+    private suggest: GmailSuggestService
+  ) {}
+
+  /** AI-suggested replies: 3 stance variants powered by Claude. */
+  @Post('/threads/:id/suggest-reply')
+  async suggestReply(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ) {
+    try {
+      return await this.suggest.suggest(org.id, id);
+    } catch (e) {
+      throw new HttpException((e as Error).message, 502);
+    }
+  }
 
   @Get('/threads')
   list(@GetOrgFromRequest() org: Organization, @Query('q') q?: string) {

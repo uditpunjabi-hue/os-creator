@@ -15,6 +15,51 @@
 body {
   background: var(--new-bgColor) !important;
   color: var(--new-btn-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'cv11' 1, 'ss03' 1;
+  letter-spacing: -0.005em;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Tighter heading rhythm + sharper weight steps. Targets the actual classes
+   our pages use (text-lg / text-xl / text-2xl headers, text-3xl big numbers). */
+.text-lg { font-size: 17px !important; line-height: 1.35 !important; letter-spacing: -0.011em; }
+.text-xl { font-size: 19px !important; line-height: 1.3 !important;  letter-spacing: -0.015em; }
+.text-2xl { font-size: 24px !important; line-height: 1.2 !important; letter-spacing: -0.02em; font-weight: 700; }
+.text-3xl { font-size: 30px !important; line-height: 1.15 !important; letter-spacing: -0.025em; font-weight: 700; }
+
+/* Bigger, weightier stat numbers — used on the metric tiles across Profile / Analytics. */
+.illum-stat {
+  font-size: 28px;
+  line-height: 1.1;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* Sharper card chrome — kill blur, tighten borders. */
+.bg-white\/95 { backdrop-filter: none !important; }
+
+/* Skeleton shimmer */
+@keyframes illum-skeleton {
+  0%   { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.illum-skeleton {
+  background-color: rgba(255, 255, 255, 0.04);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0)   0,
+    rgba(255, 255, 255, 0.06) 40px,
+    rgba(255, 255, 255, 0.10) 80px,
+    rgba(255, 255, 255, 0)   120px
+  );
+  background-repeat: no-repeat;
+  background-size: 200px 100%;
+  animation: illum-skeleton 1.2s ease-in-out infinite;
+  border-radius: 8px;
 }
 
 /* === Illuminati dark theme palette ===

@@ -15,6 +15,10 @@ import {
 } from 'lucide-react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
+import {
+  SkeletonStatGrid,
+  SkeletonList,
+} from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
 
 interface IgMedia {
@@ -180,6 +184,16 @@ export default function CreatorAnalyticsPage() {
           </div>
         )}
 
+        {loading && (
+          <>
+            <SkeletonStatGrid count={5} />
+            <div className="mt-4">
+              <SkeletonList count={3} />
+            </div>
+          </>
+        )}
+        {!loading && (
+        <>
         {/* Summary tiles */}
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-5 lg:gap-3">
           {stats.map((s) => {
@@ -284,6 +298,8 @@ export default function CreatorAnalyticsPage() {
             )}
           </ul>
         </div>
+        </>
+        )}
       </div>
     </div>
   );
