@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "functions": {
+    "src/app/api/creator/scripts/generate/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/oauth/instagram/callback/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/manager/inbox/threads/route.ts": {
+      "maxDuration": 60
+    }
+  }
+}
