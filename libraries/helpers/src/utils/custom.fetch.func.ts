@@ -43,7 +43,12 @@ export const customFetch = (
             .find((p) => p.includes('impersonate='))
             ?.split('=')[1];
 
-    const fetchRequest = await fetch(params.baseUrl + url, {
+    // Tolerate an unset/empty baseUrl — when both the env var is missing and
+    // the host happens to be the same origin, "" + "/api/..." resolves
+    // correctly. Without this, an unset NEXT_PUBLIC_BACKEND_URL on Vercel
+    // produced "undefined/api/..." URLs and every fetch failed.
+    const baseUrl = params.baseUrl ?? '';
+    const fetchRequest = await fetch(baseUrl + url, {
       ...(secured ? { credentials: 'include' } : {}),
       ...(newRequestObject || options),
       headers: {

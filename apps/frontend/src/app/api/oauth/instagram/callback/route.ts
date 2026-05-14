@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   if (error || !code) {
     const reason = errorDescription ?? errorReason ?? error ?? 'no_code';
     return NextResponse.redirect(
-      frontendUrl(`/auth/login?error=${encodeURIComponent(reason)}`)
+      frontendUrl(`/auth/login?error=${encodeURIComponent(reason)}`, req)
     );
   }
 
@@ -33,7 +33,8 @@ export async function GET(req: NextRequest) {
     const tokenUrl = new URL(FB_TOKEN);
     tokenUrl.searchParams.set('client_id', process.env.META_APP_ID!);
     tokenUrl.searchParams.set('client_secret', process.env.META_APP_SECRET!);
-    tokenUrl.searchParams.set('redirect_uri', `${backendBase()}/api/oauth/instagram/callback`);
+    // Must match the redirect_uri sent to /start exactly.
+    tokenUrl.searchParams.set('redirect_uri', `${backendBase(req)}/api/oauth/instagram/callback`);
     tokenUrl.searchParams.set('code', code);
 
     const tokenRes = await fetch(tokenUrl.toString());
@@ -41,7 +42,8 @@ export async function GET(req: NextRequest) {
     if (!tokenRes.ok) {
       return NextResponse.redirect(
         frontendUrl(
-          `/auth/login?error=meta_token_exchange&detail=${encodeURIComponent(tokenBody.slice(0, 200))}`
+          `/auth/login?error=meta_token_exchange&detail=${encodeURIComponent(tokenBody.slice(0, 200))}`,
+          req
         )
       );
     }
@@ -136,7 +138,7 @@ export async function GET(req: NextRequest) {
 
     if (fullyConnected) {
       const res = NextResponse.redirect(
-        frontendUrl('/onboarding/connecting?provider=instagram&status=success')
+        frontendUrl('/onboarding/connecting?provider=instagram&status=success', req)
       );
       await signInUser(res, demoUser.id);
       return res;
@@ -146,7 +148,8 @@ export async function GET(req: NextRequest) {
         '/auth/login?error=no_ig_business&detail=' +
           encodeURIComponent(
             'Facebook returned 0 Pages. Link an IG Business/Creator account to a Facebook Page at business.facebook.com → Accounts → Instagram, then click Connect again.'
-          )
+          ),
+        req
       )
     );
   } catch (e) {
@@ -154,7 +157,8 @@ export async function GET(req: NextRequest) {
     console.error(`[IG callback] CRASH: ${err.message}\n${err.stack ?? '(no stack)'}`);
     return NextResponse.redirect(
       frontendUrl(
-        `/auth/login?error=instagram_callback&detail=${encodeURIComponent(err.message.slice(0, 200))}`
+        `/auth/login?error=instagram_callback&detail=${encodeURIComponent(err.message.slice(0, 200))}`,
+        req
       )
     );
   }

@@ -24,17 +24,32 @@ export async function signInUser(res: NextResponse, userId: string): Promise<voi
   });
 }
 
-export function frontendUrl(path: string): string {
-  const base = process.env.FRONTEND_URL ?? 'http://localhost:4200';
+/**
+ * Build a fully-qualified frontend URL. Prefers env vars; falls back to the
+ * incoming request's origin so an unset Vercel env doesn't trap users with
+ * localhost redirects.
+ */
+export function frontendUrl(path: string, req?: Request): string {
+  const base =
+    process.env.FRONTEND_URL ??
+    (req ? new URL(req.url).origin : undefined) ??
+    'http://localhost:4200';
   return `${base.replace(/\/$/, '')}${path}`;
 }
 
-export function backendBase(): string {
-  // Where Google/Meta should send the OAuth callback. Now points at the
-  // same origin as the frontend since the callbacks live in Next.js routes.
+/**
+ * Where Google/Meta redirect after the OAuth dance. The callbacks live at
+ * /api/oauth/*\/callback on the same origin as the frontend.
+ *
+ * Resolution: OAUTH_REDIRECT_BASE → FRONTEND_URL → request origin → localhost.
+ * The request-origin fallback means Vercel deploys still work even if the
+ * user forgets to set either env var.
+ */
+export function backendBase(req?: Request): string {
   return (
     process.env.OAUTH_REDIRECT_BASE ??
     process.env.FRONTEND_URL ??
+    (req ? new URL(req.url).origin : undefined) ??
     'http://localhost:4200'
   ).replace(/\/$/, '');
 }

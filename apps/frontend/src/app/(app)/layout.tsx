@@ -58,7 +58,10 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
             process.env.STORAGE_PROVIDER! as 'local' | 'cloudflare'
           }
           environment={process.env.NODE_ENV!}
-          backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL!}
+          // Default to '/api' so the app keeps working even if the Vercel env
+          // var was never set — the API routes live at /api/* on the same
+          // origin, so this is the correct fallback for the unified deploy.
+          backendUrl={process.env.NEXT_PUBLIC_BACKEND_URL || '/api'}
           plontoKey={process.env.NEXT_PUBLIC_POLOTNO!}
           stripeClient={process.env.STRIPE_PUBLISHABLE_KEY!}
           billingEnabled={!!process.env.STRIPE_PUBLISHABLE_KEY}

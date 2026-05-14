@@ -16,13 +16,13 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.readonly',
 ];
 
-export async function GET() {
+export async function GET(req: Request) {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) return errorResponse(503, 'GOOGLE_CLIENT_ID not configured');
 
   const url = new URL(GOOGLE_AUTH);
   url.searchParams.set('client_id', clientId);
-  url.searchParams.set('redirect_uri', `${backendBase()}/api/oauth/google/callback`);
+  url.searchParams.set('redirect_uri', `${backendBase(req)}/api/oauth/google/callback`);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', GOOGLE_SCOPES.join(' '));
   url.searchParams.set('access_type', 'offline');

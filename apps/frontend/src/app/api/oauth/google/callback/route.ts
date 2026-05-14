@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   if (error || !code) {
     return NextResponse.redirect(
-      frontendUrl(`/auth/login?error=${encodeURIComponent(error ?? 'no_code')}`)
+      frontendUrl(`/auth/login?error=${encodeURIComponent(error ?? 'no_code')}`, req)
     );
   }
 
@@ -26,14 +26,16 @@ export async function GET(req: NextRequest) {
         code,
         client_id: process.env.GOOGLE_CLIENT_ID!,
         client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-        redirect_uri: `${backendBase()}/api/oauth/google/callback`,
+        // Must match the redirect_uri sent to /start exactly, including the
+        // request-origin fallback when env vars are unset.
+        redirect_uri: `${backendBase(req)}/api/oauth/google/callback`,
         grant_type: 'authorization_code',
       }),
     });
     if (!tokenRes.ok) {
       const detail = await tokenRes.text();
       console.warn(`[google callback] token exchange failed: ${detail.slice(0, 300)}`);
-      return NextResponse.redirect(frontendUrl('/auth/login?error=google_token_exchange'));
+      return NextResponse.redirect(frontendUrl('/auth/login?error=google_token_exchange', req));
     }
     const tokens = (await tokenRes.json()) as {
       access_token: string;
@@ -68,12 +70,12 @@ export async function GET(req: NextRequest) {
     });
 
     const res = NextResponse.redirect(
-      frontendUrl('/onboarding/connecting?provider=google&status=success')
+      frontendUrl('/onboarding/connecting?provider=google&status=success', req)
     );
     await signInUser(res, demoUser.id);
     return res;
   } catch (e) {
     console.error('[google callback] crashed', e);
-    return NextResponse.redirect(frontendUrl('/auth/login?error=google_callback'));
+    return NextResponse.redirect(frontendUrl('/auth/login?error=google_callback', req));
   }
 }

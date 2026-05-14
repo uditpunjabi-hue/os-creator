@@ -16,13 +16,13 @@ const META_SCOPES = [
   'business_management',
 ];
 
-export async function GET() {
+export async function GET(req: Request) {
   const clientId = process.env.META_APP_ID;
   if (!clientId) return errorResponse(503, 'META_APP_ID not configured');
 
   const url = new URL(FB_AUTH);
   url.searchParams.set('client_id', clientId);
-  url.searchParams.set('redirect_uri', `${backendBase()}/api/oauth/instagram/callback`);
+  url.searchParams.set('redirect_uri', `${backendBase(req)}/api/oauth/instagram/callback`);
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', META_SCOPES.join(','));
   // Force consent every time so newly-added scopes get explicitly granted
