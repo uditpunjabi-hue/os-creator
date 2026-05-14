@@ -26,6 +26,12 @@ import {
   SkeletonStatGrid,
 } from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
+import {
+  useCreatorProfile,
+  useCreatorInsights,
+  useAiInsights,
+  useIntelligence,
+} from '@gitroom/frontend/hooks/creator-data';
 
 interface IgMedia {
   id: string;
@@ -88,6 +94,7 @@ interface AiInsights {
   growthOpportunities: AiInsightCard[];
   audiencePulse: AiInsightCard[];
   contentGaps: AiInsightCard[];
+  partial?: boolean;
 }
 
 interface Insights {
@@ -134,6 +141,7 @@ interface Intelligence {
   thisWeekPlan: PlanDay[];
   profileHealthScore: number;
   scoreBreakdown: ScoreBreakdown;
+  partial?: boolean;
 }
 
 const fmt = (n: number | null | undefined) => {
@@ -154,77 +162,47 @@ const formatBestTime = (t: BestTime) => {
 export default function CreatorProfile() {
   const fetch = useFetch();
   const { backendUrl } = useVariables();
-  const [profile, setProfile] = useState<IgProfile | null>(null);
-  const [insights, setInsights] = useState<Insights | null>(null);
-  const [ai, setAi] = useState<AiInsights | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [intel, setIntel] = useState<Intelligence | null>(null);
-  const [intelLoading, setIntelLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
-  // Tap a post tile → opens a full-screen detail modal (caption + engagement
-  // + AI take). Stored as the id so we can re-derive from the live profile
-  // state if it ever refreshes mid-view.
+
+  // SWR-backed fetches. Once the in-memory cache has data, subsequent renders
+  // (or revisits within `dedupingInterval`) hand back the cached payload
+  // without hitting the network — that's the "show cached data instantly"
+  // behavior. AI / intelligence are gated on `profile.connected` so we don't
+  // run Claude on a disconnected account.
+  const {
+    data: profile,
+    isLoading: profileLoading,
+    mutate: mutateProfile,
+  } = useCreatorProfile();
+  const { data: insights } = useCreatorInsights();
+  const connected = profile?.connected ?? false;
+  const {
+    data: ai,
+    isLoading: aiLoadingRaw,
+    mutate: mutateAi,
+  } = useAiInsights(connected);
+  const {
+    data: intel,
+    isLoading: intelLoadingRaw,
+    mutate: mutateIntel,
+  } = useIntelligence(connected);
+
+  // For UI: show the AI-block skeleton only on the first load (cache miss),
+  // not on background revalidations.
+  const aiLoading = aiLoadingRaw;
+  const intelLoading = intelLoadingRaw;
+  const loading = profileLoading;
+
   const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [pRes, iRes] = await Promise.all([
-          fetch('/creator/profile'),
-          fetch('/creator/insights'),
-        ]);
-        if (!cancelled) {
-          if (pRes.ok) setProfile(await pRes.json());
-          if (iRes.ok) setInsights(await iRes.json());
-          setLoading(false);
-        }
-      } catch {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fetch]);
-
-  // AI Content DNA + Master intelligence — both fired after the page paints
-  // so the live stats render immediately. They cache server-side (24h hard,
-  // 6h SWR) so a repeat visit is near-instant.
-  useEffect(() => {
-    if (!profile?.connected) return;
-    let cancelled = false;
-    setAiLoading(true);
-    setIntelLoading(true);
-    (async () => {
-      try {
-        const [aiRes, intelRes] = await Promise.all([
-          fetch('/creator/ai-insights'),
-          fetch('/creator/intelligence'),
-        ]);
-        if (cancelled) return;
-        if (aiRes.ok) setAi((await aiRes.json()) as AiInsights);
-        if (intelRes.ok) setIntel((await intelRes.json()) as Intelligence);
-      } finally {
-        if (!cancelled) {
-          setAiLoading(false);
-          setIntelLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fetch, profile?.connected]);
-
   const refreshIntel = async () => {
-    setIntelLoading(true);
-    try {
-      const res = await fetch('/creator/intelligence?refresh=1');
-      if (res.ok) setIntel((await res.json()) as Intelligence);
-    } finally {
-      setIntelLoading(false);
+    // Force the server to bypass its memory cache; once the response lands,
+    // patch the SWR cache so the UI updates without a refetch round-trip.
+    const res = await fetch('/creator/intelligence?refresh=1');
+    if (res.ok) {
+      await mutateIntel(await res.json(), { revalidate: false });
     }
+    // Also re-validate the base profile in case the IG numbers changed.
+    void mutateProfile();
   };
 
   const live = profile?.connected ?? false;
@@ -587,13 +565,8 @@ export default function CreatorProfile() {
               <button
                 disabled={aiLoading}
                 onClick={async () => {
-                  setAiLoading(true);
-                  try {
-                    const r = await fetch('/creator/ai-insights?refresh=1');
-                    if (r.ok) setAi(await r.json());
-                  } finally {
-                    setAiLoading(false);
-                  }
+                  const r = await fetch('/creator/ai-insights?refresh=1');
+                  if (r.ok) await mutateAi(await r.json(), { revalidate: false });
                 }}
                 className="text-[11px] font-medium text-purple-600 hover:text-purple-700 disabled:opacity-50"
               >
@@ -610,6 +583,14 @@ export default function CreatorProfile() {
               </div>
             )}
 
+            {ai?.partial && (
+              <div className="mb-2 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div>
+                  <span className="font-semibold">AI analysis timed out.</span> Hit Refresh in a few seconds — the data below is real, just the narrative needs another try.
+                </div>
+              </div>
+            )}
             {ai && (
               <div className="flex flex-col gap-4">
                 <AiInsightGroup label="Your content DNA" cards={ai.contentDna} accent="#7C3AED" />
@@ -853,6 +834,8 @@ function PostDetailModal({
                 src={src}
                 alt=""
                 referrerPolicy="no-referrer"
+                loading="lazy"
+                decoding="async"
                 className="h-full w-full object-cover"
               />
             </div>
@@ -1091,6 +1074,11 @@ function HealthScoreCard({
                   <span className="mx-1.5">·</span>
                   Growth {intel.growthRate}
                 </>
+              )}
+              {intel.partial && (
+                <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                  Narrative regenerating
+                </span>
               )}
             </div>
             <button

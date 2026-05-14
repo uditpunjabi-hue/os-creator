@@ -20,6 +20,7 @@ import {
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { cn } from '@gitroom/frontend/lib/utils';
+import { useSchedule } from '@gitroom/frontend/hooks/creator-data';
 
 // ---------------------------------------------------------------------------
 // Types — three sources merge into one timeline: scheduled posts, Google
@@ -156,8 +157,6 @@ export default function SchedulePage() {
   const fetch = useFetch();
 
   const [cursor, setCursor] = useState<Date>(() => new Date());
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [formInitialDate, setFormInitialDate] = useState<Date | null>(null);
@@ -168,70 +167,64 @@ export default function SchedulePage() {
     return t;
   }, []);
 
-  // Fetch a wide window (current month ± padding) on month change. Server is
-  // already padded by ±7 days when no params are sent, which covers the
-  // leading/trailing days of the rendered grid. Sending explicit from/to
-  // lets us tighten that to the grid bounds.
-  const reload = useCallback(async () => {
-    setLoading(true);
-    try {
-      const grid = buildMonthGrid(cursor);
-      const from = ymdLocal(grid[0]);
-      const to = ymdLocal(grid[grid.length - 1]);
-      const res = await fetch(`/creator/schedule?from=${from}&to=${to}`);
-      if (!res.ok) {
-        setEntries([]);
-        return;
-      }
-      const data = (await res.json()) as ApiPayload;
-      const merged: Entry[] = [];
-      for (const p of data.posts ?? []) {
-        merged.push({
-          id: `post-${p.id}`,
-          kind: 'POST',
-          title: p.caption.slice(0, 120) || '(no caption)',
-          startsAt: new Date(p.scheduledAt),
-          status: p.status,
-          platforms: (p.platforms ?? []) as Platform[],
-          format:
-            p.kind === 'REEL'
-              ? 'Reel'
-              : p.kind === 'CAROUSEL'
-              ? 'Carousel'
-              : p.kind === 'STORY'
-              ? 'Story'
-              : 'Image',
-        });
-      }
-      for (const e of data.events ?? []) {
-        merged.push({
-          id: `event-${e.id}`,
-          kind: 'EVENT',
-          title: e.title || '(untitled)',
-          startsAt: new Date(e.startsAt),
-        });
-      }
-      for (const d of data.deadlines ?? []) {
-        if (!d.deadline) continue;
-        merged.push({
-          id: `deal-${d.id}`,
-          kind: 'DEADLINE',
-          title: `${d.brand} deadline`,
-          startsAt: new Date(d.deadline),
-          brand: d.brand,
-          offer: d.offer,
-        });
-      }
-      merged.sort((a, b) => +a.startsAt - +b.startsAt);
-      setEntries(merged);
-    } finally {
-      setLoading(false);
-    }
-  }, [fetch, cursor]);
+  // Build the visible window from the calendar grid bounds. SWR keys by the
+  // resulting URL — flipping months loads new data, flipping back hits the
+  // in-memory cache instantly.
+  const grid = useMemo(() => buildMonthGrid(cursor), [cursor]);
+  const fromYmd = ymdLocal(grid[0]);
+  const toYmd = ymdLocal(grid[grid.length - 1]);
+  const { data, isLoading, mutate: mutateSchedule } = useSchedule(fromYmd, toYmd);
+  const loading = isLoading;
 
-  useEffect(() => {
-    reload();
-  }, [reload]);
+  // Reshape the wire payload into the Entry[] the calendar renders. Done in
+  // useMemo so the heavy date parsing only runs when the data actually changes.
+  const entries: Entry[] = useMemo(() => {
+    if (!data) return [];
+    const merged: Entry[] = [];
+    for (const p of data.posts ?? []) {
+      merged.push({
+        id: `post-${p.id}`,
+        kind: 'POST',
+        title: p.caption.slice(0, 120) || '(no caption)',
+        startsAt: new Date(p.scheduledAt),
+        status: p.status,
+        platforms: (p.platforms ?? []) as Platform[],
+        format:
+          p.kind === 'REEL'
+            ? 'Reel'
+            : p.kind === 'CAROUSEL'
+            ? 'Carousel'
+            : p.kind === 'STORY'
+            ? 'Story'
+            : 'Image',
+      });
+    }
+    for (const e of data.events ?? []) {
+      merged.push({
+        id: `event-${e.id}`,
+        kind: 'EVENT',
+        title: e.title || '(untitled)',
+        startsAt: new Date(e.startsAt),
+      });
+    }
+    for (const d of data.deadlines ?? []) {
+      if (!d.deadline) continue;
+      merged.push({
+        id: `deal-${d.id}`,
+        kind: 'DEADLINE',
+        title: `${d.brand} deadline`,
+        startsAt: new Date(d.deadline),
+        brand: d.brand,
+        offer: d.offer,
+      });
+    }
+    merged.sort((a, b) => +a.startsAt - +b.startsAt);
+    return merged;
+  }, [data]);
+
+  const reload = () => {
+    void mutateSchedule();
+  };
 
   // Index entries by local YYYY-MM-DD so each day cell can look up its dots
   // in O(1) instead of scanning the whole list.
@@ -245,8 +238,6 @@ export default function SchedulePage() {
     }
     return map;
   }, [entries]);
-
-  const grid = useMemo(() => buildMonthGrid(cursor), [cursor]);
 
   const goMonth = useCallback((delta: -1 | 1) => {
     setCursor((c) => {

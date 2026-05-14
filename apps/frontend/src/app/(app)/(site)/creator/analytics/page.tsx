@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Eye,
@@ -28,6 +28,12 @@ import {
   SkeletonList,
 } from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
+import {
+  useCreatorProfile,
+  useCreatorInsights,
+  useWeeklyReport,
+  useIntelligence,
+} from '@gitroom/frontend/hooks/creator-data';
 
 // ---------------------------------------------------------------------------
 // Types — mirror the API payloads so the page can be picked apart cheaply.
@@ -93,6 +99,7 @@ interface WeeklyReport {
   bestTimeToPost: string;
   formatBreakdown: Array<{ format: string; count: number; avgInteractions: number; verdict: string }>;
   topHashtags: Array<{ tag: string; uses: number; avgInteractions: number }>;
+  partial?: boolean;
 }
 
 interface PostingSlot {
@@ -185,63 +192,19 @@ const mediaTypeLabel = (t: string) =>
 export default function CreatorAnalyticsPage() {
   const fetch = useFetch();
   const { backendUrl } = useVariables();
-  const [profile, setProfile] = useState<IgProfile | null>(null);
-  const [insights, setInsights] = useState<Insights | null>(null);
-  const [report, setReport] = useState<WeeklyReport | null>(null);
-  const [intel, setIntel] = useState<Intelligence | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [intelLoading, setIntelLoading] = useState(false);
   const [sort, setSort] = useState<SortKey>('recent');
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [pRes, iRes] = await Promise.all([
-          fetch('/creator/profile'),
-          fetch('/creator/insights'),
-        ]);
-        if (cancelled) return;
-        if (pRes.ok) setProfile(await pRes.json());
-        if (iRes.ok) setInsights(await iRes.json());
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fetch]);
+  const { data: profile, isLoading: profileLoading } = useCreatorProfile();
+  const { data: insights } = useCreatorInsights();
+  const connected = profile?.connected ?? false;
+  const {
+    data: report,
+    isLoading: reportLoading,
+    mutate: mutateReport,
+  } = useWeeklyReport(connected);
+  const { data: intel } = useIntelligence(connected);
 
-  // AI weekly report + master intelligence — both fire-and-forget so the
-  // heavy numbers at the top render immediately. Each has its own server-side
-  // cache (24h hard, 6h SWR) so repeat visits within a day are instant.
-  useEffect(() => {
-    if (!profile?.connected) return;
-    let cancelled = false;
-    setReportLoading(true);
-    setIntelLoading(true);
-    (async () => {
-      try {
-        const [reportRes, intelRes] = await Promise.all([
-          fetch('/creator/weekly-report'),
-          fetch('/creator/intelligence'),
-        ]);
-        if (cancelled) return;
-        if (reportRes.ok) setReport((await reportRes.json()) as WeeklyReport);
-        if (intelRes.ok) setIntel((await intelRes.json()) as Intelligence);
-      } finally {
-        if (!cancelled) {
-          setReportLoading(false);
-          setIntelLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [fetch, profile?.connected]);
+  const loading = profileLoading;
 
   const live = profile?.connected ?? false;
   const followers = profile?.followers ?? null;
@@ -316,12 +279,12 @@ export default function CreatorAnalyticsPage() {
   }, [media, sort, followers]);
 
   const refreshReport = async () => {
-    setReportLoading(true);
-    try {
-      const r = await fetch('/creator/weekly-report?refresh=1');
-      if (r.ok) setReport((await r.json()) as WeeklyReport);
-    } finally {
-      setReportLoading(false);
+    // Bypass the server cache; once we have the fresh payload patch it into
+    // SWR's local cache so the UI updates without an extra round-trip.
+    const r = await fetch('/creator/weekly-report?refresh=1');
+    if (r.ok) {
+      const fresh = (await r.json()) as WeeklyReport;
+      await mutateReport(fresh, { revalidate: false });
     }
   };
 
@@ -556,6 +519,8 @@ function StatCard({
             src={thumbnail}
             alt=""
             referrerPolicy="no-referrer"
+            loading="lazy"
+            decoding="async"
             className="h-6 w-6 rounded object-cover"
           />
         ) : (
@@ -594,6 +559,8 @@ function BestPostCard({
             src={post.thumbnailUrl ?? post.mediaUrl ?? ''}
             alt=""
             referrerPolicy="no-referrer"
+            loading="lazy"
+            decoding="async"
             className="h-20 w-20 shrink-0 rounded-xl object-cover ring-2 ring-amber-200"
           />
         )}
@@ -661,6 +628,7 @@ function WeeklyReportPanel({
   onRefresh: () => void;
   refreshing: boolean;
 }) {
+  const partial = report?.partial === true;
   return (
     <section className="mt-5 rounded-2xl border border-purple-100 bg-purple-50/40 p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -685,6 +653,15 @@ function WeeklyReportPanel({
           {refreshing ? 'Refreshing…' : 'Refresh'}
         </button>
       </div>
+
+      {partial && (
+        <div className="mb-3 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <div>
+            <span className="font-semibold">AI recap took too long this time.</span> The numbers below are real; tap Refresh to regenerate the narrative.
+          </div>
+        </div>
+      )}
 
       {loading && (
         <div className="flex flex-col gap-2">
