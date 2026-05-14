@@ -1,0 +1,32 @@
+{
+  "name": "Illuminati Creator OS",
+  "short_name": "Illuminati",
+  "description": "AI-powered creator operating system — Instagram analytics, content pipeline, and brand inbox in one app.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0F0F0F",
+  "theme_color": "#0F0F0F",
+  "categories": ["productivity", "business", "social"],
+  "icons": [
+    {
+      "src": "/illuminati-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/illuminati-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/illuminati-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

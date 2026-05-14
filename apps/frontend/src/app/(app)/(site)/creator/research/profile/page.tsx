@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   TrendingUp,
   Heart,
@@ -10,12 +11,14 @@ import {
   AlertCircle,
   Instagram,
   Loader2,
+  X,
+  Sparkles,
+  ArrowUpRight,
 } from 'lucide-react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import {
   Skeleton,
-  SkeletonList,
   SkeletonStatGrid,
 } from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
@@ -115,6 +118,10 @@ export default function CreatorProfile() {
   const [ai, setAi] = useState<AiInsights | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Tap a post tile → opens a full-screen detail modal (caption + engagement
+  // + AI take). Stored as the id so we can re-derive from the live profile
+  // state if it ever refreshes mid-view.
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -185,9 +192,26 @@ export default function CreatorProfile() {
         label: 'Engagement',
         value:
           profile?.engagementRate != null
-            ? `${profile.engagementRate}%`
+            ? `${profile.engagementRate.toFixed(2)}%`
             : '—',
-        delta: 'Across recent posts',
+        // Color-code: > 3% green, 1–3% amber, < 1% red. Surface health at a
+        // glance instead of making the user remember IG benchmarks.
+        valueClass:
+          profile?.engagementRate == null
+            ? undefined
+            : profile.engagementRate >= 3
+            ? 'text-emerald-600'
+            : profile.engagementRate >= 1
+            ? 'text-amber-600'
+            : 'text-rose-600',
+        delta:
+          profile?.engagementRate == null
+            ? 'Across recent posts'
+            : profile.engagementRate >= 3
+            ? 'Above the 1–3% norm'
+            : profile.engagementRate >= 1
+            ? 'In the typical band'
+            : 'Below benchmark — needs work',
         positive: true,
         icon: Heart,
       },
@@ -220,6 +244,14 @@ export default function CreatorProfile() {
       )
       .slice(0, 3);
   }, [live, profile]);
+
+  const selectedPost = useMemo(
+    () =>
+      selectedPostId
+        ? (profile?.recentMedia ?? []).find((m) => m.id === selectedPostId) ?? null
+        : null,
+    [selectedPostId, profile]
+  );
 
   const trend = insights?.followerTrend ?? [];
   const trendValues = trend.map((p) => p.count);
@@ -260,6 +292,42 @@ export default function CreatorProfile() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+        {/* Hero — profile pic + handle + bio. Only when IG is connected; the
+            "connect" card below carries the empty state when it isn't. */}
+        {!loading && live && profile && (
+          <div className="mb-4 flex items-start gap-4 rounded-2xl border border-gray-200 bg-white p-4 lg:p-5">
+            {profile.profilePic ? (
+              <img
+                src={profile.profilePic}
+                alt={profile.handle ?? 'Profile'}
+                className="h-16 w-16 shrink-0 rounded-full object-cover ring-2 ring-purple-100 lg:h-20 lg:w-20"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-purple-500 to-pink-500 text-2xl font-bold text-white ring-2 ring-purple-100 lg:h-20 lg:w-20">
+                {(profile.handle ?? '?').replace('@', '').charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <Instagram className="h-3.5 w-3.5 text-purple-600" />
+                <div className="truncate text-sm font-semibold text-gray-900">
+                  {profile.handle ?? 'Connected'}
+                </div>
+              </div>
+              <div className="mt-0.5 text-[28px] font-bold leading-none text-gray-900">
+                {fmt(profile.followers)}
+                <span className="ml-1.5 text-xs font-medium text-gray-500">followers</span>
+              </div>
+              {profile.bio && (
+                <p className="mt-2 line-clamp-2 text-[12px] leading-snug text-gray-600">
+                  {profile.bio}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {!loading && !live && (
           <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
             <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
@@ -299,17 +367,20 @@ export default function CreatorProfile() {
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
           {stats.map((s) => {
             const Icon = s.icon;
+            const valueClass = (s as { valueClass?: string }).valueClass ?? 'text-gray-900';
             return (
               <div
                 key={s.label}
-                className="flex flex-col gap-1.5 rounded-2xl border border-gray-200 bg-white p-4"
+                className="flex flex-col gap-1 rounded-2xl border border-gray-200 bg-white p-4 lg:p-5"
               >
                 <div className="flex items-center justify-between text-gray-500">
-                  <span className="text-[10px] uppercase tracking-wide">{s.label}</span>
+                  <span className="text-[11px] font-medium uppercase tracking-wide">{s.label}</span>
                   <Icon className="h-3.5 w-3.5" />
                 </div>
-                <div className="text-xl font-semibold text-gray-900 lg:text-2xl">{s.value}</div>
-                <div className="text-[11px] text-emerald-600">{s.delta}</div>
+                <div className={cn('text-[28px] font-bold leading-tight tracking-tight lg:text-3xl', valueClass)}>
+                  {s.value}
+                </div>
+                <div className="text-[12px] text-gray-500">{s.delta}</div>
               </div>
             );
           })}
@@ -491,48 +562,69 @@ export default function CreatorProfile() {
           </div>
         )}
 
-        {/* Top posts */}
+        {/* Recent posts grid — 3 columns of thumbnails with engagement overlay.
+            Tap → opens the detail modal with caption + breakdown. Matches the
+            IG grid mental model so the creator instantly sees what's there. */}
         {live && (
-          <div className="mt-4">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Top recent posts
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                Recent posts
+              </div>
+              <div className="text-[11px] text-gray-400">
+                {(profile?.recentMedia?.length ?? 0)} pulled · tap to inspect
+              </div>
             </div>
-            <ul className="flex flex-col gap-2">
-              {topPosts.map((p, idx) => (
-                <li
-                  key={p.id}
-                  className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-bold text-purple-700">
-                    {idx + 1}
-                  </div>
-                  {p.thumbnailUrl || p.mediaUrl ? (
-                    <img
-                      src={p.thumbnailUrl ?? p.mediaUrl ?? ''}
-                      alt=""
-                      className="h-14 w-14 shrink-0 rounded-lg object-cover"
-                    />
-                  ) : null}
-                  <div className="min-w-0 flex-1">
-                    <div className="line-clamp-2 text-sm font-medium text-gray-900">
-                      {p.caption ?? '(no caption)'}
-                    </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500">
-                      <span>{p.mediaType === 'VIDEO' ? 'Reel' : p.mediaType === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image'}</span>
-                      <span>·</span>
-                      <span>♥ {fmt(p.likeCount)}</span>
-                      <span>·</span>
-                      <span>💬 {fmt(p.commentsCount)}</span>
-                    </div>
-                  </div>
-                </li>
-              ))}
-              {topPosts.length === 0 && (
-                <li className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
-                  No recent media returned by Instagram yet.
-                </li>
-              )}
-            </ul>
+            {(profile?.recentMedia?.length ?? 0) === 0 ? (
+              <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
+                No recent media returned by Instagram yet.
+              </div>
+            ) : (
+              <ul className="grid grid-cols-3 gap-1.5 sm:gap-2">
+                {(profile?.recentMedia ?? []).map((p) => {
+                  const src = p.thumbnailUrl ?? p.mediaUrl;
+                  const interactions = p.likeCount + p.commentsCount;
+                  return (
+                    <li key={p.id} className="aspect-square">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPostId(p.id)}
+                        className="group relative block h-full w-full overflow-hidden rounded-xl bg-gray-100 ring-1 ring-gray-200 transition-transform active:scale-[0.97]"
+                      >
+                        {src ? (
+                          <img
+                            src={src}
+                            alt=""
+                            referrerPolicy="no-referrer"
+                            loading="lazy"
+                            className="h-full w-full object-cover transition-opacity group-hover:opacity-95"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[10px] text-gray-400">
+                            no media
+                          </div>
+                        )}
+                        {/* Media-type pill, top-left */}
+                        <span className="absolute left-1 top-1 inline-flex items-center rounded-md bg-black/50 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-sm">
+                          {p.mediaType === 'VIDEO'
+                            ? 'REEL'
+                            : p.mediaType === 'CAROUSEL_ALBUM'
+                            ? 'CAROUSEL'
+                            : 'IMAGE'}
+                        </span>
+                        {/* Engagement overlay, bottom — only when there's signal */}
+                        {interactions > 0 && (
+                          <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 via-black/40 to-transparent px-2 pb-1.5 pt-3 text-[10px] font-semibold text-white">
+                            <span>♥ {fmt(p.likeCount)}</span>
+                            <span>💬 {fmt(p.commentsCount)}</span>
+                          </div>
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </div>
         )}
         </>
@@ -558,6 +650,194 @@ export default function CreatorProfile() {
             </a>
           </div>
         )}
+      </div>
+
+      {selectedPost && (
+        <PostDetailModal
+          post={selectedPost}
+          followers={profile?.followers ?? null}
+          onClose={() => setSelectedPostId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function PostDetailModal({
+  post,
+  followers,
+  onClose,
+}: {
+  post: IgMedia;
+  followers: number | null;
+  onClose: () => void;
+}) {
+  // Lock scroll while the modal is open. Cheap, no portal needed because the
+  // modal is fixed-positioned and outranks the page.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  const src = post.thumbnailUrl ?? post.mediaUrl;
+  const interactions = post.likeCount + post.commentsCount;
+  const engagementPct =
+    followers && followers > 0 ? (interactions / followers) * 100 : null;
+  const tone =
+    engagementPct == null
+      ? 'text-gray-700'
+      : engagementPct >= 3
+      ? 'text-emerald-600'
+      : engagementPct >= 1
+      ? 'text-amber-600'
+      : 'text-rose-600';
+  const verdict =
+    engagementPct == null
+      ? null
+      : engagementPct >= 3
+      ? 'This piece outperformed your typical post — the format / topic / hook combination clearly landed. Worth doubling down on this angle for the next piece.'
+      : engagementPct >= 1
+      ? 'This is squarely in your normal band. Nothing broken, but no breakout signal — experiment with a tighter hook or a more polarising opening to push it higher.'
+      : 'Underperformed your norm. The hook likely failed in the first 2 seconds; rework the opening and post the next piece in your best slot to recover momentum.';
+
+  // Pull caption + hashtags. IG bundles them in caption text; we split.
+  const captionRaw = post.caption ?? '';
+  const tags = Array.from(new Set(captionRaw.match(/#[\p{L}\p{N}_]+/gu) ?? []));
+  const captionWithoutTags = captionRaw.replace(/\s*#[\p{L}\p{N}_]+/gu, '').trim();
+  const prompt = `Create a new post that builds on the angle from my piece titled "${captionRaw.slice(0, 80)}". Keep what worked, push it harder.`;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 backdrop-blur-sm lg:items-center"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="relative flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl lg:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
+          <div className="text-sm font-semibold text-gray-900">Post detail</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {src && (
+            <div className="aspect-square w-full bg-gray-100">
+              <img
+                src={src}
+                alt=""
+                referrerPolicy="no-referrer"
+                className="h-full w-full object-cover"
+              />
+            </div>
+          )}
+          <div className="flex flex-col gap-4 p-4 lg:p-5">
+            {/* Engagement breakdown */}
+            <div className="grid grid-cols-3 gap-2">
+              <div className="rounded-xl border border-gray-200 bg-white p-3">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500">Likes</div>
+                <div className="mt-0.5 text-xl font-bold text-gray-900">
+                  {post.likeCount.toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-3">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500">Comments</div>
+                <div className="mt-0.5 text-xl font-bold text-gray-900">
+                  {post.commentsCount.toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded-xl border border-gray-200 bg-white p-3">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500">Engagement</div>
+                <div className={cn('mt-0.5 text-xl font-bold', tone)}>
+                  {engagementPct != null ? `${engagementPct.toFixed(2)}%` : '—'}
+                </div>
+              </div>
+            </div>
+
+            {/* Caption */}
+            {captionWithoutTags && (
+              <div>
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Caption
+                </div>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
+                  {captionWithoutTags}
+                </p>
+              </div>
+            )}
+
+            {/* Hashtags */}
+            {tags.length > 0 && (
+              <div>
+                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                  Hashtags ({tags.length})
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((t) => (
+                    <span
+                      key={t}
+                      className="rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-medium text-purple-700"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI take — derived from the actual engagement rate, no extra API call */}
+            {verdict && (
+              <div
+                className={cn(
+                  'rounded-2xl border p-3.5',
+                  engagementPct != null && engagementPct >= 3
+                    ? 'border-emerald-200 bg-emerald-50/60'
+                    : engagementPct != null && engagementPct >= 1
+                    ? 'border-gray-200 bg-gray-50'
+                    : 'border-rose-200 bg-rose-50/60'
+                )}
+              >
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-700">
+                  <Sparkles className="h-3 w-3" /> AI take
+                </div>
+                <p className="text-xs leading-relaxed text-gray-800">{verdict}</p>
+              </div>
+            )}
+
+            {/* Footer actions */}
+            <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+              <Link
+                href={`/creator/content/scripts?prompt=${encodeURIComponent(prompt)}`}
+                onClick={onClose}
+                className="inline-flex h-11 flex-1 items-center justify-center gap-1.5 rounded-full bg-[#F59E0B] text-sm font-semibold text-black hover:brightness-110"
+              >
+                <Sparkles className="h-4 w-4" /> Create similar content
+              </Link>
+              {post.permalink && (
+                <a
+                  href={post.permalink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-11 items-center justify-center gap-1.5 rounded-full border border-gray-300 bg-white px-4 text-sm font-semibold text-gray-800 hover:bg-gray-50"
+                >
+                  Open on Instagram <ArrowUpRight className="h-4 w-4" />
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

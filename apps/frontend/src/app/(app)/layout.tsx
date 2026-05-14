@@ -40,6 +40,20 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     <html>
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
+        {/* PWA — "Add to Home Screen" support on iOS + Android. */}
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/illuminati-logo.png" />
+        <meta name="theme-color" content="#0F0F0F" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="Illuminati" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        {/* Lock the mobile viewport: no zoom, account for the iOS notch via
+            viewport-fit=cover so env(safe-area-inset-*) works in CSS. */}
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"
+        />
         {!!process.env.DATAFAST_WEBSITE_ID && (
           <Script
             data-website-id={process.env.DATAFAST_WEBSITE_ID}
