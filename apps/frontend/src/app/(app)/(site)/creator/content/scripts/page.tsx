@@ -329,6 +329,15 @@ interface AgentOutputs {
   revisedQuality?: QualityReview;
 }
 
+// Auto-rewrite loop progress entries. attempt=1 is the initial quality review;
+// 2..N are the rewrites kicked off when the score is below the threshold.
+interface RevisionAttempt {
+  attempt: number;
+  status: 'started' | 'done';
+  score?: number;
+  final?: boolean;
+}
+
 const TONES = ['educational', 'entertaining', 'inspirational', 'promotional'] as const;
 const CONTENT_TYPES = ['reel', 'post', 'story', 'carousel'] as const;
 
@@ -358,7 +367,7 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
   const [outputs, setOutputs] = useState<AgentOutputs>({});
   const [phase, setPhase] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [revised, setRevised] = useState(false);
+  const [attempts, setAttempts] = useState<RevisionAttempt[]>([]);
   const [scriptId, setScriptId] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -373,7 +382,7 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
     setPhase('running');
     setError(null);
     setOutputs({});
-    setRevised(false);
+    setAttempts([]);
     setScriptId(null);
     setStatus({
       profile: 'pending',
@@ -453,9 +462,6 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
     switch (event.kind) {
       case 'agent_start':
         setStatus((s) => ({ ...s, [event.agent as AgentKey]: 'running' }));
-        if (event.agent === 'revisedScript' || event.agent === 'revisedQuality') {
-          setRevised(true);
-        }
         break;
       case 'agent_done':
         setStatus((s) => ({ ...s, [event.agent as AgentKey]: 'done' }));
@@ -465,6 +471,24 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
         setStatus((s) => ({ ...s, [event.agent as AgentKey]: 'error' }));
         setError(`${event.agent} agent failed: ${event.error}`);
         break;
+      case 'revision_attempt':
+        // Multi-attempt auto-rewrite loop. Each attempt fires "started" once
+        // the rewrite begins, then "done" with the new score when the quality
+        // reviewer re-scores.
+        setAttempts((prev) => {
+          const idx = prev.findIndex((a) => a.attempt === event.attempt);
+          const next: RevisionAttempt = {
+            attempt: event.attempt,
+            status: event.status,
+            score: event.score,
+            final: event.final,
+          };
+          if (idx === -1) return [...prev, next];
+          const copy = prev.slice();
+          copy[idx] = { ...copy[idx], ...next };
+          return copy;
+        });
+        break;
       case 'pipeline_error':
         setError(event.error);
         setPhase('error');
@@ -473,6 +497,17 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
         // Backend saved the Script as DRAFT — keep the id so Approve can
         // flip it to APPROVED and spawn a ContentPiece.
         if (typeof event.scriptId === 'string') setScriptId(event.scriptId);
+        // The streamed agent_done events overwrite revisedScript with each
+        // loop iteration, so the client may be holding the LAST attempt,
+        // not the BEST. The server picks the highest-scoring attempt and
+        // includes it in the final outputs map — adopt it as the truth.
+        if (event.outputs) {
+          setOutputs((o) => ({
+            ...o,
+            revisedScript: event.outputs.revisedScript ?? o.revisedScript,
+            revisedQuality: event.outputs.revisedQuality ?? o.revisedQuality,
+          }));
+        }
         setPhase('done');
         break;
     }
@@ -508,11 +543,12 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
     setPhase('idle');
     setError(null);
     setOutputs({});
-    setRevised(false);
+    setAttempts([]);
   };
 
   const finalScript = outputs.revisedScript ?? outputs.script;
   const finalQuality = outputs.revisedQuality ?? outputs.quality;
+  const wasRevised = attempts.length > 0;
 
   return (
     <div className="border-b border-purple-100 bg-gradient-to-b from-purple-50/60 to-white px-4 py-4 lg:px-8">
@@ -548,7 +584,7 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
         <PipelineProgress
           status={status}
           outputs={outputs}
-          revised={revised}
+          attempts={attempts}
           error={error}
           onCancel={reset}
         />
@@ -558,7 +594,9 @@ function GeneratePanel({ onClose, initialPrompt }: { onClose: () => void; initia
         <PipelineResult
           script={finalScript}
           quality={finalQuality}
-          wasRevised={revised}
+          wasRevised={wasRevised}
+          attempts={attempts}
+          initialScore={outputs.quality?.qualityScore}
           approving={approving}
           canApprove={!!scriptId}
           onApprove={handleApprove}
@@ -652,27 +690,19 @@ function IdleForm({
 function PipelineProgress({
   status,
   outputs,
-  revised,
+  attempts,
   error,
   onCancel,
 }: {
   status: Record<AgentKey, AgentStatus>;
   outputs: AgentOutputs;
-  revised: boolean;
+  attempts: RevisionAttempt[];
   error: string | null;
   onCancel: () => void;
 }) {
-  const steps = revised
-    ? [
-        ...baseSteps,
-        { key: 'revisedScript' as AgentKey, label: 'Rewriting with reviewer notes', hint: 'Quality score below 70 — auto-revising', icon: RefreshCw },
-        { key: 'revisedQuality' as AgentKey, label: 'Re-reviewing revised script', hint: 'Final pass', icon: Star },
-      ]
-    : baseSteps;
-
   return (
     <div className="flex flex-col gap-2">
-      {steps.map((step) => {
+      {baseSteps.map((step) => {
         const st = status[step.key];
         const Icon = step.icon;
         const sample = previewOf(step.key, outputs);
@@ -719,6 +749,12 @@ function PipelineProgress({
           </div>
         );
       })}
+      {attempts.length > 0 && (
+        <RevisionLoopProgress
+          initialScore={outputs.quality?.qualityScore}
+          attempts={attempts}
+        />
+      )}
       {error && (
         <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
           {error}
@@ -731,6 +767,106 @@ function PipelineProgress({
       </div>
     </div>
   );
+}
+
+function RevisionLoopProgress({
+  initialScore,
+  attempts,
+}: {
+  initialScore?: number;
+  attempts: RevisionAttempt[];
+}) {
+  // Renders the auto-improve trail: "Score 65 — auto-improving... → Attempt 2:
+  // Score 72 → Attempt 3: Score 84 ✓". Each attempt shows its score (or a
+  // spinner while in flight) so the creator sees the loop converging.
+  return (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50/60 p-3">
+      <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-amber-800">
+        <RefreshCw className="h-3 w-3" /> Auto-improving · target score 80+
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {initialScore !== undefined && (
+          <AttemptRow
+            attempt={1}
+            label={`Attempt 1: Score ${initialScore}`}
+            sublabel="Below 80 — sending back to writer with reviewer notes"
+            tone={scoreTone(initialScore)}
+            running={false}
+            check={false}
+          />
+        )}
+        {attempts.map((a) => {
+          const running = a.status === 'started';
+          const label = running
+            ? `Attempt ${a.attempt}: rewriting...`
+            : `Attempt ${a.attempt}: Score ${a.score ?? '—'}`;
+          const sublabel = running
+            ? 'Script writer is addressing the reviewer’s improvements'
+            : a.final
+            ? a.score !== undefined && a.score >= 80
+              ? 'Hit the bar — final version'
+              : 'Max attempts reached — keeping the best score'
+            : 'Still below 80 — improving again';
+          return (
+            <AttemptRow
+              key={a.attempt}
+              attempt={a.attempt}
+              label={label}
+              sublabel={sublabel}
+              tone={a.score !== undefined ? scoreTone(a.score) : 'text-amber-700'}
+              running={running}
+              check={!!a.final && a.score !== undefined && a.score >= 80}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AttemptRow({
+  attempt,
+  label,
+  sublabel,
+  tone,
+  running,
+  check,
+}: {
+  attempt: number;
+  label: string;
+  sublabel: string;
+  tone: string;
+  running: boolean;
+  check: boolean;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-white px-3 py-2 ring-1 ring-amber-100">
+      <div
+        className={cn(
+          'mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+          running ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-700'
+        )}
+      >
+        {running ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : check ? (
+          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+        ) : (
+          attempt
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className={cn('text-sm font-semibold', tone)}>{label}</div>
+        <div className="text-[11px] text-gray-500">{sublabel}</div>
+      </div>
+    </div>
+  );
+}
+
+function scoreTone(score: number): string {
+  if (score >= 80) return 'text-emerald-700';
+  if (score >= 60) return 'text-amber-700';
+  return 'text-rose-700';
 }
 
 function previewOf(key: AgentKey, outputs: AgentOutputs): string | null {
@@ -762,6 +898,8 @@ function PipelineResult({
   script,
   quality,
   wasRevised,
+  attempts,
+  initialScore,
   approving,
   canApprove,
   onApprove,
@@ -771,6 +909,8 @@ function PipelineResult({
   script: ScriptDraft;
   quality: QualityReview;
   wasRevised: boolean;
+  attempts: RevisionAttempt[];
+  initialScore?: number;
   approving: boolean;
   canApprove: boolean;
   onApprove: () => void;
@@ -778,7 +918,7 @@ function PipelineResult({
   onReject: () => void;
 }) {
   const score = quality.qualityScore;
-  const scoreTone =
+  const scoreToneBox =
     score >= 80
       ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
       : score >= 60
@@ -790,19 +930,23 @@ function PipelineResult({
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-gray-200 bg-white p-4">
         <div className="min-w-0">
           <div className="text-[11px] uppercase tracking-wider text-gray-500">
-            {wasRevised ? 'Revised script' : 'Script'}
+            {wasRevised ? `Revised script · attempt ${1 + attempts.length}` : 'Script'}
           </div>
           <div className="truncate text-base font-semibold text-gray-900">{script.title}</div>
           <div className="text-xs text-gray-500">
             {quality.predictedViews} · {quality.predictedEngagement}
           </div>
         </div>
-        <div className={cn('flex flex-col items-center rounded-xl border px-3 py-2 text-center', scoreTone)}>
+        <div className={cn('flex flex-col items-center rounded-xl border px-3 py-2 text-center', scoreToneBox)}>
           <span className="text-[10px] font-semibold uppercase tracking-wide">Quality</span>
           <span className="text-xl font-bold leading-tight">{score}</span>
           <span className="text-[10px] font-medium">{quality.verdict}</span>
         </div>
       </div>
+
+      {wasRevised && (
+        <RevisionLoopProgress initialScore={initialScore} attempts={attempts} />
+      )}
 
       <ResultSection icon={Megaphone} label="Hook">
         <p className="text-sm font-medium text-gray-900">{script.hook}</p>

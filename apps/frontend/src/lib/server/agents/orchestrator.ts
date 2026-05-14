@@ -16,7 +16,12 @@ import type {
   ScriptDraft,
 } from './types';
 
-const AUTO_REVISE_THRESHOLD = 70;
+// Auto-rewrite loop: if Quality Reviewer scores below 80, send the script back
+// to the writer with the reviewer's improvements list and re-review. Loop up
+// to MAX_REVISION_ATTEMPTS times (counting the initial pass), keeping the best
+// scoring version if we never reach the bar.
+const AUTO_REVISE_THRESHOLD = 80;
+const MAX_REVISION_ATTEMPTS = 3;
 const NICHE_FALLBACK = 'short-form video creator (filmmaking, AI tools, creator workflow)';
 
 /**
@@ -97,44 +102,63 @@ export async function* runPipeline(
     return yield* fail(e, 'quality', 'REVIEWING');
   }
 
-  // Auto-revise once below threshold.
-  if (outputs.quality!.qualityScore < AUTO_REVISE_THRESHOLD) {
+  // Auto-rewrite loop: re-run Script Writer + Quality Reviewer up to
+  // MAX_REVISION_ATTEMPTS-1 extra times if the score is below the threshold.
+  // Each rewrite is fed the *previous* reviewer's improvement list so the
+  // writer addresses concrete critiques, not just retries blindly.
+  outputs.revisions = [];
+  let lastQuality = outputs.quality!;
+  for (
+    let attempt = 2;
+    attempt <= MAX_REVISION_ATTEMPTS && lastQuality.qualityScore < AUTO_REVISE_THRESHOLD;
+    attempt++
+  ) {
+    yield { kind: 'revision_attempt', attempt, status: 'started' };
     try {
       yield { kind: 'agent_start', agent: 'revisedScript', stage: 'REVISING' };
-      const notes = outputs.quality!.improvements.join('\n- ');
-      outputs.revisedScript = await runScriptWriter(
+      const notes = lastQuality.improvements.join('\n- ');
+      const rewritten = await runScriptWriter(
         outputs.strategy!,
         request.prompt,
-        `Reviewer flagged score ${outputs.quality!.qualityScore}. Address:\n- ${notes}`
+        `Reviewer scored the previous draft ${lastQuality.qualityScore}/100 (attempt ${attempt - 1} of ${MAX_REVISION_ATTEMPTS}). Address every point — be concrete, not generic:\n- ${notes}`
       );
-      yield {
-        kind: 'agent_done',
-        agent: 'revisedScript',
-        stage: 'REVISING',
-        output: outputs.revisedScript,
-      };
+      yield { kind: 'agent_done', agent: 'revisedScript', stage: 'REVISING', output: rewritten };
 
       yield { kind: 'agent_start', agent: 'revisedQuality', stage: 'REVIEWING' };
-      outputs.revisedQuality = await runQualityReviewer(
-        outputs.revisedScript,
+      const rescored = await runQualityReviewer(
+        rewritten,
         creatorProfile,
         outputs.profile!,
         outputs.competitor!
       );
-      yield {
-        kind: 'agent_done',
-        agent: 'revisedQuality',
-        stage: 'REVIEWING',
-        output: outputs.revisedQuality,
-      };
+      yield { kind: 'agent_done', agent: 'revisedQuality', stage: 'REVIEWING', output: rescored };
+
+      outputs.revisions.push({ attempt, script: rewritten, quality: rescored });
+      lastQuality = rescored;
+      const final =
+        rescored.qualityScore >= AUTO_REVISE_THRESHOLD || attempt === MAX_REVISION_ATTEMPTS;
+      yield { kind: 'revision_attempt', attempt, status: 'done', score: rescored.qualityScore, final };
     } catch (e) {
-      // Soft-fail revision: still save what we have.
-      console.warn(`Auto-revise failed: ${(e as Error).message}`);
+      // Soft-fail mid-loop: stop revising, keep the best we have.
+      console.warn(`Auto-revise attempt ${attempt} failed: ${(e as Error).message}`);
+      yield {
+        kind: 'revision_attempt',
+        attempt,
+        status: 'done',
+        score: lastQuality.qualityScore,
+        final: true,
+      };
+      break;
     }
   }
 
-  const finalScript = pickFinal(outputs);
-  const finalQuality = outputs.revisedQuality ?? outputs.quality!;
+  // Pick the highest-scoring attempt as the final. The initial script is
+  // attempt 1; revisions are 2..N. Tie goes to a later attempt (more polish).
+  const best = pickBest(outputs);
+  outputs.revisedScript = best.attempt > 1 ? best.script : undefined;
+  outputs.revisedQuality = best.attempt > 1 ? best.quality : undefined;
+  const finalScript = best.script;
+  const finalQuality = best.quality;
 
   const saved = await prisma.script.create({
     data: {
@@ -165,16 +189,18 @@ async function* fail(
   yield { kind: 'pipeline_error', error: message };
 }
 
-function pickFinal(outputs: AgentOutputs): ScriptDraft {
-  if (
-    outputs.revisedScript &&
-    outputs.revisedQuality &&
-    outputs.quality &&
-    outputs.revisedQuality.qualityScore >= outputs.quality.qualityScore
-  ) {
-    return outputs.revisedScript;
+function pickBest(outputs: AgentOutputs): {
+  attempt: number;
+  script: ScriptDraft;
+  quality: NonNullable<AgentOutputs['quality']>;
+} {
+  let best = { attempt: 1, script: outputs.script!, quality: outputs.quality! };
+  for (const r of outputs.revisions ?? []) {
+    if (r.quality.qualityScore >= best.quality.qualityScore) {
+      best = { attempt: r.attempt, script: r.script, quality: r.quality };
+    }
   }
-  return outputs.script!;
+  return best;
 }
 
 async function loadCreatorProfile(organizationId: string): Promise<CreatorProfile> {

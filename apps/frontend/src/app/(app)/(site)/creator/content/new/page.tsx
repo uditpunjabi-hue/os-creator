@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
   Video,
@@ -13,6 +14,13 @@ import {
   Sparkles,
   Clock,
   Loader2,
+  Megaphone,
+  Mic,
+  Play,
+  Hash,
+  Film,
+  ChevronDown,
+  Copy,
 } from 'lucide-react';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
@@ -26,6 +34,11 @@ interface Piece {
   format: string;
   stage: Stage;
   hook: string;
+  body: string | null;
+  cta: string | null;
+  caption: string | null;
+  hashtags: string[];
+  scriptId: string | null;
   scheduledFor?: string;
   approvedAt: string;
   checks: { film: boolean; edit: boolean; captions: boolean; finalReview: boolean };
@@ -37,6 +50,10 @@ interface ApiPiece {
   format: string;
   status: Stage;
   hook: string | null;
+  body: string | null;
+  cta: string | null;
+  caption: string | null;
+  hashtags: string[] | null;
   scheduledAt: string | null;
   approvedAt: string | null;
   createdAt: string;
@@ -65,6 +82,11 @@ const shapeFromApi = (r: ApiPiece): Piece => ({
   format: r.format,
   stage: r.status,
   hook: r.hook ?? '',
+  body: r.body ?? null,
+  cta: r.cta ?? null,
+  caption: r.caption ?? null,
+  hashtags: r.hashtags ?? [],
+  scriptId: r.script?.id ?? null,
   scheduledFor: r.scheduledAt ? fmtScheduled(r.scheduledAt) : undefined,
   approvedAt: r.approvedAt ? `Approved ${fmtAgo(r.approvedAt)}` : `Created ${fmtAgo(r.createdAt)}`,
   checks: {
@@ -279,6 +301,8 @@ export default function CreatePage() {
                 <p className="text-sm text-gray-600">{active.hook}</p>
               </div>
 
+              <ScriptReferenceCard piece={active} />
+
               <div className="flex flex-col gap-1 rounded-2xl border border-gray-200 bg-white p-2">
                 {checklistRows.map((row) => {
                   const Icon = row.icon;
@@ -344,5 +368,170 @@ export default function CreatePage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Script reference — gives the creator the approved script (hook/body/CTA/
+// caption/hashtags + filming notes) inline while they're filming. Filming
+// notes live on Script.agentOutputs, fetched lazily when the piece is opened.
+// ---------------------------------------------------------------------------
+
+interface ScriptRef {
+  filmingNotes: string;
+  estimatedDuration: string;
+}
+
+function ScriptReferenceCard({ piece }: { piece: Piece }) {
+  const fetch = useFetch();
+  const [scriptRef, setScriptRef] = useState<ScriptRef | null>(null);
+  const [openSection, setOpenSection] = useState<string | null>('hook');
+
+  const loadScript = useCallback(async () => {
+    if (!piece.scriptId) return;
+    try {
+      const res = await fetch(`/creator/scripts/${piece.scriptId}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        agentOutputs?: {
+          script?: { filmingNotes?: string; estimatedDuration?: string };
+          revisedScript?: { filmingNotes?: string; estimatedDuration?: string };
+        };
+      };
+      const s = data.agentOutputs?.revisedScript ?? data.agentOutputs?.script;
+      if (s && (s.filmingNotes || s.estimatedDuration)) {
+        setScriptRef({
+          filmingNotes: s.filmingNotes ?? '',
+          estimatedDuration: s.estimatedDuration ?? '',
+        });
+      }
+    } catch {
+      // Ignore — the page still works without filming notes.
+    }
+  }, [fetch, piece.scriptId]);
+
+  useEffect(() => {
+    setScriptRef(null);
+    loadScript();
+  }, [loadScript]);
+
+  // Bail out if there's no script payload at all on the piece.
+  const hasAnyContent =
+    piece.hook || piece.body || piece.cta || piece.caption || (piece.hashtags?.length ?? 0) > 0;
+  if (!hasAnyContent) return null;
+
+  const sections: Array<{ key: string; label: string; icon: typeof Megaphone; value: string }> = [];
+  if (piece.hook) sections.push({ key: 'hook', label: 'Hook', icon: Megaphone, value: piece.hook });
+  if (piece.body) sections.push({ key: 'body', label: 'Body', icon: Mic, value: piece.body });
+  if (piece.cta) sections.push({ key: 'cta', label: 'CTA', icon: Play, value: piece.cta });
+  if (piece.caption)
+    sections.push({ key: 'caption', label: 'Caption', icon: Mic, value: piece.caption });
+  if (piece.hashtags?.length)
+    sections.push({
+      key: 'hashtags',
+      label: `Hashtags (${piece.hashtags.length})`,
+      icon: Hash,
+      value: piece.hashtags.map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' '),
+    });
+  if (scriptRef?.filmingNotes)
+    sections.push({
+      key: 'filming',
+      label: `Filming notes${scriptRef.estimatedDuration ? ` · ${scriptRef.estimatedDuration}` : ''}`,
+      icon: Film,
+      value: scriptRef.filmingNotes,
+    });
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-purple-200 bg-purple-50/30">
+      <div className="flex items-center justify-between border-b border-purple-100 bg-white px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-3.5 w-3.5 text-purple-600" />
+          <div className="text-sm font-semibold text-gray-900">Script reference</div>
+        </div>
+        {piece.scriptId && (
+          <Link
+            href={`/creator/content/scripts/${piece.scriptId}`}
+            className="text-[11px] font-semibold text-purple-700 hover:text-purple-800"
+          >
+            Open full →
+          </Link>
+        )}
+      </div>
+      <div className="flex flex-col divide-y divide-purple-100/70 bg-white/50">
+        {sections.map((s) => {
+          const Icon = s.icon;
+          const open = openSection === s.key;
+          return (
+            <div key={s.key}>
+              <div className="flex items-center gap-2 px-4 py-2.5">
+                <button
+                  type="button"
+                  onClick={() => setOpenSection(open ? null : s.key)}
+                  className="flex flex-1 items-center gap-2 text-left transition-colors hover:opacity-80"
+                >
+                  <Icon className="h-3.5 w-3.5 text-purple-500" />
+                  <span className="text-sm font-semibold text-gray-900">{s.label}</span>
+                  <ChevronDown
+                    className={cn(
+                      'ml-auto h-4 w-4 text-gray-400 transition-transform',
+                      open && 'rotate-180'
+                    )}
+                  />
+                </button>
+                <InlineCopy text={s.value} />
+              </div>
+              {open && (
+                <div className="px-4 pb-3 pt-1">
+                  {s.key === 'hashtags' && piece.hashtags?.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {piece.hashtags.map((h) => (
+                        <span
+                          key={h}
+                          className="rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700"
+                        >
+                          {h.startsWith('#') ? h : `#${h}`}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
+                      {s.value}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function InlineCopy({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async (e) => {
+        e.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // Older browsers — ignore.
+        }
+      }}
+      className={cn(
+        'inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[11px] font-medium',
+        copied
+          ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+      )}
+      aria-label={copied ? 'Copied' : 'Copy'}
+    >
+      {copied ? <CheckCircle2 className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+    </button>
   );
 }

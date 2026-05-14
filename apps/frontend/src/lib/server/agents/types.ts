@@ -97,6 +97,12 @@ export type PipelineStage =
   | 'REVISING'
   | 'COMPLETE';
 
+export interface RevisionAttempt {
+  attempt: number; // 2, 3, ... — attempt 1 is the initial script/quality pair
+  script: ScriptDraft;
+  quality: QualityReview;
+}
+
 export interface AgentOutputs {
   profile?: ProfileAnalysis;
   competitor?: CompetitorAnalysis;
@@ -104,8 +110,12 @@ export interface AgentOutputs {
   strategy?: StrategyBrief;
   script?: ScriptDraft;
   quality?: QualityReview;
+  // Final picked revision — convenience pointer into the best entry of
+  // `revisions` so existing readers (e.g. the approve endpoint) don't have
+  // to know about the auto-rewrite loop.
   revisedScript?: ScriptDraft;
   revisedQuality?: QualityReview;
+  revisions?: RevisionAttempt[];
 }
 
 export type PipelineEvent =
@@ -113,5 +123,14 @@ export type PipelineEvent =
   | { kind: 'agent_start'; agent: keyof AgentOutputs; stage: PipelineStage }
   | { kind: 'agent_done'; agent: keyof AgentOutputs; stage: PipelineStage; output: unknown }
   | { kind: 'agent_error'; agent: keyof AgentOutputs; stage: PipelineStage; error: string }
+  // Auto-rewrite loop progress. Emitted alongside agent_start/agent_done so the
+  // UI can render the "Score 65 → improving → Attempt 2: 72 → ..." trail.
+  | {
+      kind: 'revision_attempt';
+      attempt: number;
+      status: 'started' | 'done';
+      score?: number;
+      final?: boolean;
+    }
   | { kind: 'pipeline_done'; scriptId: string; outputs: AgentOutputs }
   | { kind: 'pipeline_error'; error: string };

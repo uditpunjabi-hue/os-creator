@@ -19,7 +19,15 @@ export interface AiInsightsResponse {
 }
 
 const CACHE_KEY = (orgId: string) => `ig:ai-insights:${orgId}`;
-const CACHE_TTL = 30 * 60;
+// Hard TTL — drop the entry entirely after 24h.
+const CACHE_TTL = 24 * 60 * 60;
+// Soft TTL — after 6h, still serve cached BUT kick off a background refresh
+// so the next reader gets fresh data without paying the Claude-call latency.
+const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+
+// In-flight de-dup: if a background refresh is already running for an org,
+// don't fire another. Per-process — fine for the SWR use case.
+const inFlight = new Map<string, Promise<AiInsightsResponse>>();
 
 const SYSTEM_PROMPT = `You are the AI creative director for a solo content creator.
 Given the creator's Instagram profile and a sample of recent posts (captions + engagement),
@@ -49,12 +57,27 @@ creator's data, return [] rather than padding with generics.`;
 export async function getAiInsights(orgId: string, force = false): Promise<AiInsightsResponse> {
   if (!force) {
     const cached = memoryCache.get<AiInsightsResponse>(CACHE_KEY(orgId));
-    if (cached) return cached;
+    if (cached) {
+      // Stale-while-revalidate: if the cached entry is older than the soft TTL,
+      // kick off a refresh in the background so the next reader is fast. The
+      // current reader still gets the cached payload immediately.
+      const generatedAt = cached.generatedAt ? Date.parse(cached.generatedAt) : 0;
+      if (generatedAt && Date.now() - generatedAt > STALE_AFTER_MS) {
+        triggerBackgroundRefresh(orgId);
+      }
+      return cached;
+    }
   }
+  return regenerate(orgId);
+}
 
-  const profile = await getInstagramProfile(orgId);
-  if (!profile.connected) {
-    return {
+function triggerBackgroundRefresh(orgId: string) {
+  if (inFlight.has(orgId)) return;
+  const p = regenerate(orgId).catch((e) => {
+    console.warn(`AI insights background refresh failed: ${(e as Error).message}`);
+    // Return the (now stale) cached value so callers waiting on this promise
+    // never get a rejected promise. They'll still see the prior insights.
+    return memoryCache.get<AiInsightsResponse>(CACHE_KEY(orgId)) ?? {
       connected: false,
       generatedAt: null,
       contentDna: [],
@@ -62,43 +85,73 @@ export async function getAiInsights(orgId: string, force = false): Promise<AiIns
       audiencePulse: [],
       contentGaps: [],
     };
-  }
+  });
+  inFlight.set(orgId, p);
+  void p.finally(() => inFlight.delete(orgId));
+}
 
-  const userPayload = {
-    handle: profile.handle,
-    followers: profile.followers,
-    mediaCount: profile.mediaCount,
-    bio: profile.bio,
-    engagementRate: profile.engagementRate,
-    recentPosts: profile.recentMedia.map((m) => ({
-      type: m.mediaType,
-      caption: (m.caption ?? '').slice(0, 300),
-      likes: m.likeCount,
-      comments: m.commentsCount,
-      timestamp: m.timestamp,
-    })),
-  };
+async function regenerate(orgId: string): Promise<AiInsightsResponse> {
+  // De-dup concurrent calls — multiple page loads racing for the same org all
+  // share one Claude call.
+  const existing = inFlight.get(orgId);
+  if (existing) return existing;
 
-  let parsed: Omit<AiInsightsResponse, 'connected' | 'generatedAt'>;
+  const work = (async (): Promise<AiInsightsResponse> => {
+    const profile = await getInstagramProfile(orgId);
+    if (!profile.connected) {
+      return {
+        connected: false,
+        generatedAt: null,
+        contentDna: [],
+        growthOpportunities: [],
+        audiencePulse: [],
+        contentGaps: [],
+      };
+    }
+
+    const userPayload = {
+      handle: profile.handle,
+      followers: profile.followers,
+      mediaCount: profile.mediaCount,
+      bio: profile.bio,
+      engagementRate: profile.engagementRate,
+      recentPosts: profile.recentMedia.map((m) => ({
+        type: m.mediaType,
+        caption: (m.caption ?? '').slice(0, 300),
+        likes: m.likeCount,
+        comments: m.commentsCount,
+        timestamp: m.timestamp,
+      })),
+    };
+
+    let parsed: Omit<AiInsightsResponse, 'connected' | 'generatedAt'>;
+    try {
+      parsed = await callClaude<Omit<AiInsightsResponse, 'connected' | 'generatedAt'>>({
+        systemPrompt: SYSTEM_PROMPT,
+        userMessage: `Analyze this creator and return the four-category JSON:\n\n${JSON.stringify(userPayload, null, 2)}`,
+        maxTokens: 2000,
+      });
+    } catch (e) {
+      console.warn(`AI insights generation failed: ${(e as Error).message}`);
+      parsed = { contentDna: [], growthOpportunities: [], audiencePulse: [], contentGaps: [] };
+    }
+
+    const out: AiInsightsResponse = {
+      connected: true,
+      generatedAt: new Date().toISOString(),
+      contentDna: parsed.contentDna ?? [],
+      growthOpportunities: parsed.growthOpportunities ?? [],
+      audiencePulse: parsed.audiencePulse ?? [],
+      contentGaps: parsed.contentGaps ?? [],
+    };
+    memoryCache.set(CACHE_KEY(orgId), out, CACHE_TTL);
+    return out;
+  })();
+
+  inFlight.set(orgId, work);
   try {
-    parsed = await callClaude<Omit<AiInsightsResponse, 'connected' | 'generatedAt'>>({
-      systemPrompt: SYSTEM_PROMPT,
-      userMessage: `Analyze this creator and return the four-category JSON:\n\n${JSON.stringify(userPayload, null, 2)}`,
-      maxTokens: 2000,
-    });
-  } catch (e) {
-    console.warn(`AI insights generation failed: ${(e as Error).message}`);
-    parsed = { contentDna: [], growthOpportunities: [], audiencePulse: [], contentGaps: [] };
+    return await work;
+  } finally {
+    inFlight.delete(orgId);
   }
-
-  const out: AiInsightsResponse = {
-    connected: true,
-    generatedAt: new Date().toISOString(),
-    contentDna: parsed.contentDna ?? [],
-    growthOpportunities: parsed.growthOpportunities ?? [],
-    audiencePulse: parsed.audiencePulse ?? [],
-    contentGaps: parsed.contentGaps ?? [],
-  };
-  memoryCache.set(CACHE_KEY(orgId), out, CACHE_TTL);
-  return out;
 }

@@ -194,24 +194,25 @@ export default function CreatorProfile() {
           profile?.engagementRate != null
             ? `${profile.engagementRate.toFixed(2)}%`
             : '—',
-        // Color-code: > 3% green, 1–3% amber, < 1% red. Surface health at a
-        // glance instead of making the user remember IG benchmarks.
+        // Average of (likes+comments)/followers per post. Color thresholds:
+        // > 5% green, 2–5% amber, < 2% red — tight bands tuned for IG creator
+        // accounts where 2-3% is the typical floor.
         valueClass:
           profile?.engagementRate == null
             ? undefined
-            : profile.engagementRate >= 3
+            : profile.engagementRate > 5
             ? 'text-emerald-600'
-            : profile.engagementRate >= 1
+            : profile.engagementRate >= 2
             ? 'text-amber-600'
             : 'text-rose-600',
         delta:
           profile?.engagementRate == null
-            ? 'Across recent posts'
-            : profile.engagementRate >= 3
-            ? 'Above the 1–3% norm'
-            : profile.engagementRate >= 1
-            ? 'In the typical band'
-            : 'Below benchmark — needs work',
+            ? 'Avg per-post engagement'
+            : profile.engagementRate > 5
+            ? 'Strong avg per post — above 5%'
+            : profile.engagementRate >= 2
+            ? 'Typical band — 2-5% per post'
+            : 'Below 2% — needs work',
         positive: true,
         icon: Heart,
       },
@@ -584,6 +585,20 @@ export default function CreatorProfile() {
                 {(profile?.recentMedia ?? []).map((p) => {
                   const src = p.thumbnailUrl ?? p.mediaUrl;
                   const interactions = p.likeCount + p.commentsCount;
+                  // Per-post engagement = (likes + comments) / followers × 100.
+                  // Green > 5%, amber 2-5%, red < 2%. Null if followers unknown.
+                  const engagementPct =
+                    profile?.followers && profile.followers > 0
+                      ? (interactions / profile.followers) * 100
+                      : null;
+                  const pctTone =
+                    engagementPct == null
+                      ? 'bg-black/55 text-white'
+                      : engagementPct > 5
+                      ? 'bg-emerald-500 text-white'
+                      : engagementPct >= 2
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-rose-500 text-white';
                   return (
                     <li key={p.id} className="aspect-square">
                       <button
@@ -597,6 +612,7 @@ export default function CreatorProfile() {
                             alt=""
                             referrerPolicy="no-referrer"
                             loading="lazy"
+                            decoding="async"
                             className="h-full w-full object-cover transition-opacity group-hover:opacity-95"
                           />
                         ) : (
@@ -612,7 +628,19 @@ export default function CreatorProfile() {
                             ? 'CAROUSEL'
                             : 'IMAGE'}
                         </span>
-                        {/* Engagement overlay, bottom — only when there's signal */}
+                        {/* Per-post engagement %, top-right. Color tells the
+                            creator at a glance which posts are pulling weight. */}
+                        {engagementPct != null && (
+                          <span
+                            className={cn(
+                              'absolute right-1 top-1 inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold tabular-nums shadow-sm',
+                              pctTone
+                            )}
+                          >
+                            {engagementPct.toFixed(1)}%
+                          </span>
+                        )}
+                        {/* Likes / comments overlay, bottom */}
                         {interactions > 0 && (
                           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 bg-gradient-to-t from-black/70 via-black/40 to-transparent px-2 pb-1.5 pt-3 text-[10px] font-semibold text-white">
                             <span>♥ {fmt(p.likeCount)}</span>
@@ -689,19 +717,19 @@ function PostDetailModal({
   const tone =
     engagementPct == null
       ? 'text-gray-700'
-      : engagementPct >= 3
+      : engagementPct > 5
       ? 'text-emerald-600'
-      : engagementPct >= 1
+      : engagementPct >= 2
       ? 'text-amber-600'
       : 'text-rose-600';
   const verdict =
     engagementPct == null
       ? null
-      : engagementPct >= 3
-      ? 'This piece outperformed your typical post — the format / topic / hook combination clearly landed. Worth doubling down on this angle for the next piece.'
-      : engagementPct >= 1
-      ? 'This is squarely in your normal band. Nothing broken, but no breakout signal — experiment with a tighter hook or a more polarising opening to push it higher.'
-      : 'Underperformed your norm. The hook likely failed in the first 2 seconds; rework the opening and post the next piece in your best slot to recover momentum.';
+      : engagementPct > 5
+      ? 'Outperformed your typical post — the format / topic / hook combination clearly landed. Worth doubling down on this angle for the next piece.'
+      : engagementPct >= 2
+      ? 'Squarely in the normal 2-5% band. Nothing broken, but no breakout signal — experiment with a tighter hook or a more polarising opening to push it higher.'
+      : 'Below the 2% floor. The hook likely failed in the first 2 seconds; rework the opening and post the next piece in your best slot to recover momentum.';
 
   // Pull caption + hashtags. IG bundles them in caption text; we split.
   const captionRaw = post.caption ?? '';
@@ -802,9 +830,9 @@ function PostDetailModal({
               <div
                 className={cn(
                   'rounded-2xl border p-3.5',
-                  engagementPct != null && engagementPct >= 3
+                  engagementPct != null && engagementPct > 5
                     ? 'border-emerald-200 bg-emerald-50/60'
-                    : engagementPct != null && engagementPct >= 1
+                    : engagementPct != null && engagementPct >= 2
                     ? 'border-gray-200 bg-gray-50'
                     : 'border-rose-200 bg-rose-50/60'
                 )}
