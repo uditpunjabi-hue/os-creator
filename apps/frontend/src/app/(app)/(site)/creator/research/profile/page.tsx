@@ -14,6 +14,10 @@ import {
   X,
   Sparkles,
   ArrowUpRight,
+  Activity,
+  Gauge,
+  CalendarCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
@@ -95,6 +99,43 @@ interface Insights {
   insights: RealInsight[];
 }
 
+interface PostingSlot {
+  day: string;
+  time: string;
+  avgEngagement: number;
+}
+
+interface PlanDay {
+  day: string;
+  action: string;
+  reason: string;
+}
+
+interface ScoreBreakdown {
+  contentQuality: number;
+  postingConsistency: number;
+  engagementRate: number;
+  hashtagStrategy: number;
+  audienceGrowth: number;
+}
+
+interface Intelligence {
+  connected: boolean;
+  generatedAt: string | null;
+  bestPostingTimes: PostingSlot[];
+  optimalFrequency: string;
+  growthRate: string;
+  growthTrend: 'accelerating' | 'steady' | 'declining' | 'unknown';
+  projectedFollowers30Days: number | null;
+  avgEngagementRate: number;
+  engagementTrend: 'improving' | 'stable' | 'declining';
+  topEngagementDrivers: string[];
+  engagementKillers: string[];
+  thisWeekPlan: PlanDay[];
+  profileHealthScore: number;
+  scoreBreakdown: ScoreBreakdown;
+}
+
 const fmt = (n: number | null | undefined) => {
   if (n == null) return '—';
   return n >= 1_000_000
@@ -117,6 +158,8 @@ export default function CreatorProfile() {
   const [insights, setInsights] = useState<Insights | null>(null);
   const [ai, setAi] = useState<AiInsights | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [intel, setIntel] = useState<Intelligence | null>(null);
+  const [intelLoading, setIntelLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   // Tap a post tile → opens a full-screen detail modal (caption + engagement
   // + AI take). Stored as the id so we can re-derive from the live profile
@@ -145,26 +188,44 @@ export default function CreatorProfile() {
     };
   }, [fetch]);
 
-  // AI Content DNA: fire-and-forget after the page renders. Cached server-side
-  // for 30 minutes so reloads are instant after the first call.
+  // AI Content DNA + Master intelligence — both fired after the page paints
+  // so the live stats render immediately. They cache server-side (24h hard,
+  // 6h SWR) so a repeat visit is near-instant.
   useEffect(() => {
     if (!profile?.connected) return;
     let cancelled = false;
     setAiLoading(true);
+    setIntelLoading(true);
     (async () => {
       try {
-        const res = await fetch('/creator/ai-insights');
-        if (!cancelled && res.ok) {
-          setAi((await res.json()) as AiInsights);
-        }
+        const [aiRes, intelRes] = await Promise.all([
+          fetch('/creator/ai-insights'),
+          fetch('/creator/intelligence'),
+        ]);
+        if (cancelled) return;
+        if (aiRes.ok) setAi((await aiRes.json()) as AiInsights);
+        if (intelRes.ok) setIntel((await intelRes.json()) as Intelligence);
       } finally {
-        if (!cancelled) setAiLoading(false);
+        if (!cancelled) {
+          setAiLoading(false);
+          setIntelLoading(false);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [fetch, profile?.connected]);
+
+  const refreshIntel = async () => {
+    setIntelLoading(true);
+    try {
+      const res = await fetch('/creator/intelligence?refresh=1');
+      if (res.ok) setIntel((await res.json()) as Intelligence);
+    } finally {
+      setIntelLoading(false);
+    }
+  };
 
   const live = profile?.connected ?? false;
 
@@ -177,7 +238,13 @@ export default function CreatorProfile() {
         { label: 'Best time', value: '—', delta: 'Connect IG to see live', positive: true, icon: Clock },
       ];
     }
-    const bestTime = insights?.bestTimes[0]
+    // Prefer the master intelligence slot when it's available — it's the
+    // same data but already day-name formatted and ranked by engagement %
+    // instead of raw interactions.
+    const intelSlot = intel?.bestPostingTimes?.[0];
+    const bestTime = intelSlot
+      ? `${intelSlot.day.slice(0, 3)} ${intelSlot.time}`
+      : insights?.bestTimes[0]
       ? formatBestTime(insights.bestTimes[0])
       : '—';
     return [
@@ -227,14 +294,16 @@ export default function CreatorProfile() {
         label: 'Best time',
         value: bestTime,
         delta:
-          insights?.bestTimes[0]
+          intel?.bestPostingTimes?.[0]
+            ? `${intel.bestPostingTimes[0].avgEngagement.toFixed(1)}% avg engagement`
+            : insights?.bestTimes[0]
             ? `${insights.bestTimes[0].avgInteractions.toLocaleString()} avg interactions`
             : 'Need more posts',
         positive: true,
         icon: Clock,
       },
     ];
-  }, [live, profile, insights]);
+  }, [live, profile, insights, intel]);
 
   const topPosts = useMemo(() => {
     if (!live) return [];
@@ -386,6 +455,23 @@ export default function CreatorProfile() {
             );
           })}
         </div>
+        )}
+
+        {/* Profile Health Score gauge + score breakdown bars. Filled by the
+            master intelligence agent; skeleton shows while it's still cooking
+            on a cold cache. */}
+        {!loading && live && (
+          <HealthScoreCard
+            intel={intel}
+            loading={intelLoading && !intel}
+            onRefresh={refreshIntel}
+            refreshing={intelLoading && !!intel}
+          />
+        )}
+
+        {/* This week's plan — agent-generated day-by-day recommendations */}
+        {!loading && live && intel && intel.thisWeekPlan.length > 0 && (
+          <WeekPlanSection plan={intel.thisWeekPlan} />
         )}
 
         {!loading && (
@@ -915,4 +1001,215 @@ function AiInsightGroup({
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Health Score card — circular SVG gauge + score breakdown bars.
+// ---------------------------------------------------------------------------
+
+function HealthScoreCard({
+  intel,
+  loading,
+  onRefresh,
+  refreshing,
+}: {
+  intel: Intelligence | null;
+  loading: boolean;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="mt-4 flex items-center justify-center gap-3 rounded-2xl border border-gray-200 bg-white p-6">
+        <Loader2 className="h-4 w-4 animate-spin text-purple-500" />
+        <div className="text-xs text-gray-500">
+          Running first-time analysis — this takes ~30s on the first load, then it’s instant.
+        </div>
+      </div>
+    );
+  }
+  if (!intel) return null;
+  const score = intel.profileHealthScore;
+  const labels: Array<[keyof ScoreBreakdown, string]> = [
+    ['contentQuality', 'Content quality'],
+    ['postingConsistency', 'Posting consistency'],
+    ['engagementRate', 'Engagement rate'],
+    ['hashtagStrategy', 'Hashtag strategy'],
+    ['audienceGrowth', 'Audience growth'],
+  ];
+  const updatedAgo = intel.generatedAt ? formatUpdated(intel.generatedAt) : null;
+  return (
+    <div className="mt-4 rounded-2xl border border-purple-100 bg-gradient-to-br from-purple-50/50 to-white p-4 lg:p-5">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+        <div className="flex shrink-0 items-center gap-4">
+          <ScoreGauge score={score} />
+          <div className="lg:hidden">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-700">
+              <Gauge className="mr-1 inline h-3 w-3" /> Profile health
+            </div>
+            <ScoreVerdict score={score} />
+          </div>
+        </div>
+        <div className="hidden lg:block">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-700">
+            <Gauge className="mr-1 inline h-3 w-3" /> Profile health
+          </div>
+          <ScoreVerdict score={score} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-col gap-1.5">
+            {labels.map(([key, label]) => {
+              const value = intel.scoreBreakdown[key];
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <div className="w-32 shrink-0 text-[11px] text-gray-600">{label}</div>
+                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all',
+                        value >= 80
+                          ? 'bg-emerald-500'
+                          : value >= 60
+                          ? 'bg-amber-500'
+                          : 'bg-rose-500'
+                      )}
+                      style={{ width: `${Math.max(value, 4)}%` }}
+                    />
+                  </div>
+                  <div className="w-8 shrink-0 text-right text-[11px] font-semibold tabular-nums text-gray-700">
+                    {value}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <div className="text-[11px] text-gray-500">
+              {updatedAgo ? `Last updated ${updatedAgo}` : 'Just generated'}
+              {intel.growthRate && (
+                <>
+                  <span className="mx-1.5">·</span>
+                  Growth {intel.growthRate}
+                </>
+              )}
+            </div>
+            <button
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="inline-flex h-7 items-center gap-1 rounded-full border border-purple-200 bg-white px-2.5 text-[11px] font-medium text-purple-700 hover:border-purple-300 disabled:opacity-50"
+            >
+              {refreshing ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              {refreshing ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreGauge({ score }: { score: number }) {
+  // SVG ring — 64dia, 8 stroke. Arc from -90° clockwise to fill the score%.
+  const size = 92;
+  const stroke = 9;
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const offset = circ - (Math.min(Math.max(score, 0), 100) / 100) * circ;
+  const color = score >= 80 ? '#10B981' : score >= 60 ? '#F59E0B' : '#EF4444';
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="#E5E7EB"
+          strokeWidth={stroke}
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 600ms ease-out' }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-bold leading-none text-gray-900">{score}</span>
+        <span className="text-[9px] uppercase tracking-wider text-gray-500">/ 100</span>
+      </div>
+    </div>
+  );
+}
+
+function ScoreVerdict({ score }: { score: number }) {
+  const text =
+    score >= 85
+      ? 'Excellent — keep stacking wins'
+      : score >= 70
+      ? 'Healthy — clear room to push'
+      : score >= 50
+      ? 'Mixed — pick a lever this week'
+      : 'Needs work — start with consistency';
+  return (
+    <div className="mt-0.5 text-sm font-semibold text-gray-900 lg:text-base">{text}</div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Week plan
+// ---------------------------------------------------------------------------
+
+function WeekPlanSection({ plan }: { plan: PlanDay[] }) {
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-purple-700">
+        <CalendarCheck className="h-3.5 w-3.5" /> This week’s plan
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {plan.map((p, i) => {
+          const promptText = `${p.action}. Reason: ${p.reason}`;
+          return (
+            <div
+              key={i}
+              className="flex flex-col gap-2 rounded-2xl border border-purple-100 bg-white p-3"
+            >
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700">
+                <Activity className="h-3 w-3" /> {p.day}
+              </div>
+              <div className="text-sm font-semibold text-gray-900">{p.action}</div>
+              <div className="text-[11px] leading-relaxed text-gray-600">{p.reason}</div>
+              <Link
+                href={`/creator/content/scripts?prompt=${encodeURIComponent(promptText)}`}
+                className="mt-1 inline-flex items-center gap-1 self-start rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100"
+              >
+                Create content →
+              </Link>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatUpdated(iso: string): string {
+  const ms = Date.now() - Date.parse(iso);
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? '1 day ago' : `${d} days ago`;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   Eye,
@@ -95,6 +95,49 @@ interface WeeklyReport {
   topHashtags: Array<{ tag: string; uses: number; avgInteractions: number }>;
 }
 
+interface PostingSlot {
+  day: string;
+  time: string;
+  avgEngagement: number;
+}
+
+interface FormatStat {
+  count: number;
+  avgEngagement: number;
+  trend: 'up' | 'down' | 'stable';
+}
+
+interface HashtagStat {
+  hashtag: string;
+  avgReach: number;
+  frequency: number;
+}
+
+interface Intelligence {
+  connected: boolean;
+  generatedAt: string | null;
+  bestPostingTimes: PostingSlot[];
+  worstPostingTimes: PostingSlot[];
+  optimalFrequency: string;
+  contentBreakdown: {
+    reels: FormatStat;
+    posts: FormatStat;
+    carousels: FormatStat;
+    stories: FormatStat;
+  };
+  topPerformingType: 'reels' | 'posts' | 'carousels' | 'stories' | null;
+  hashtagEffectiveness: HashtagStat[];
+  recommendedHashtags: string[];
+  overusedHashtags: string[];
+  audienceActiveHours: Array<{ hour: number; engagement: 'high' | 'medium' | 'low' }>;
+  growthRate: string;
+  growthTrend: 'accelerating' | 'steady' | 'declining' | 'unknown';
+  projectedFollowers30Days: number | null;
+  avgEngagementRate: number;
+  engagementTrend: 'improving' | 'stable' | 'declining';
+  profileHealthScore: number;
+}
+
 type SortKey = 'recent' | 'likes' | 'comments' | 'engagement';
 
 // ---------------------------------------------------------------------------
@@ -145,8 +188,10 @@ export default function CreatorAnalyticsPage() {
   const [profile, setProfile] = useState<IgProfile | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
   const [report, setReport] = useState<WeeklyReport | null>(null);
+  const [intel, setIntel] = useState<Intelligence | null>(null);
   const [loading, setLoading] = useState(true);
   const [reportLoading, setReportLoading] = useState(false);
+  const [intelLoading, setIntelLoading] = useState(false);
   const [sort, setSort] = useState<SortKey>('recent');
 
   useEffect(() => {
@@ -169,19 +214,28 @@ export default function CreatorAnalyticsPage() {
     };
   }, [fetch]);
 
-  // AI weekly report — fire-and-forget after the page renders, so the heavy
-  // numbers up top render immediately. 24h server-side cache means repeat
-  // visits within a day are near-instant.
+  // AI weekly report + master intelligence — both fire-and-forget so the
+  // heavy numbers at the top render immediately. Each has its own server-side
+  // cache (24h hard, 6h SWR) so repeat visits within a day are instant.
   useEffect(() => {
     if (!profile?.connected) return;
     let cancelled = false;
     setReportLoading(true);
+    setIntelLoading(true);
     (async () => {
       try {
-        const r = await fetch('/creator/weekly-report');
-        if (!cancelled && r.ok) setReport((await r.json()) as WeeklyReport);
+        const [reportRes, intelRes] = await Promise.all([
+          fetch('/creator/weekly-report'),
+          fetch('/creator/intelligence'),
+        ]);
+        if (cancelled) return;
+        if (reportRes.ok) setReport((await reportRes.json()) as WeeklyReport);
+        if (intelRes.ok) setIntel((await intelRes.json()) as Intelligence);
       } finally {
-        if (!cancelled) setReportLoading(false);
+        if (!cancelled) {
+          setReportLoading(false);
+          setIntelLoading(false);
+        }
       }
     })();
     return () => {
@@ -331,15 +385,40 @@ export default function CreatorAnalyticsPage() {
               refreshing={reportLoading && !!report}
             />
 
+            {/* Format bar chart — engagement % per format, sorted */}
+            {intel && (
+              <FormatBarChart breakdown={intel.contentBreakdown} top={intel.topPerformingType} />
+            )}
+
+            {/* Best-times heatmap — 7×24 grid powered by intel */}
+            {intel && intel.bestPostingTimes.length > 0 && (
+              <HeatmapCard
+                best={intel.bestPostingTimes}
+                worst={intel.worstPostingTimes}
+                active={intel.audienceActiveHours}
+              />
+            )}
+
             {/* Growth chart — follower trend if we have it, else engagement
                 over the last 12 posts as a fallback */}
             <GrowthChart
               followerTrend={insights?.followerTrend ?? []}
               media={media}
               followers={followers}
+              projected30={intel?.projectedFollowers30Days ?? null}
             />
 
-            {/* Content-type breakdown */}
+            {/* Hashtag cloud — bubble size = avg reach */}
+            {intel && intel.hashtagEffectiveness.length > 0 && (
+              <HashtagCloud
+                stats={intel.hashtagEffectiveness}
+                recommended={intel.recommendedHashtags}
+                overused={intel.overusedHashtags}
+              />
+            )}
+
+            {/* Content-type breakdown — kept for the raw numbers; the bar
+                chart above is the headline view */}
             {insights && insights.contentTypePerformance.length > 0 && (
               <FormatBreakdown perfs={insights.contentTypePerformance} />
             )}
@@ -746,10 +825,12 @@ function GrowthChart({
   followerTrend,
   media,
   followers,
+  projected30,
 }: {
   followerTrend: FollowerTrendPoint[];
   media: IgMedia[];
   followers: number | null;
+  projected30?: number | null;
 }) {
   // Prefer real follower history; fall back to per-post engagement so the
   // chart isn't blank just because IG insights returned nothing.
@@ -807,6 +888,12 @@ function GrowthChart({
               : 'Engagement % across your most recent 12 posts (tap a point for details)'}
           </div>
         </div>
+        {usingFollowers && projected30 != null && (
+          <div className="rounded-xl border border-purple-200 bg-purple-50 px-3 py-1.5 text-center">
+            <div className="text-[9px] uppercase tracking-wide text-purple-700">30-day projection</div>
+            <div className="text-sm font-bold text-purple-900">{fmt(projected30)}</div>
+          </div>
+        )}
       </div>
       <svg
         viewBox={`0 0 ${W} ${H}`}
@@ -1075,5 +1162,323 @@ function Metric({
       <div className="mt-0.5 text-[13px] font-semibold text-gray-900">{value}</div>
       <div className="text-[9px] uppercase tracking-wide text-gray-400">{label}</div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Format bar chart — engagement % per format, with trend arrow + winner flag
+// ---------------------------------------------------------------------------
+
+function FormatBarChart({
+  breakdown,
+  top,
+}: {
+  breakdown: Intelligence['contentBreakdown'];
+  top: Intelligence['topPerformingType'];
+}) {
+  const entries: Array<[Intelligence['topPerformingType'], string, FormatStat]> = [
+    ['reels', 'Reels', breakdown.reels],
+    ['carousels', 'Carousels', breakdown.carousels],
+    ['posts', 'Posts', breakdown.posts],
+    ['stories', 'Stories', breakdown.stories],
+  ];
+  const visible = entries.filter(([, , s]) => s.count > 0);
+  if (visible.length === 0) return null;
+  const max = Math.max(...visible.map(([, , s]) => s.avgEngagement), 0.1);
+  return (
+    <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <div className="text-sm font-semibold text-gray-900">Format performance</div>
+          <div className="text-[11px] text-gray-500">Engagement % per format · last 30 days</div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-2.5">
+        {visible.map(([key, label, s]) => {
+          const isTop = key === top;
+          const pct = (s.avgEngagement / max) * 100;
+          const tone =
+            s.avgEngagement > 5
+              ? 'bg-emerald-500'
+              : s.avgEngagement >= 2
+              ? 'bg-amber-500'
+              : 'bg-rose-500';
+          return (
+            <div key={label}>
+              <div className="mb-1 flex items-center justify-between text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <span className={cn('font-semibold', isTop ? 'text-emerald-700' : 'text-gray-800')}>
+                    {label}
+                  </span>
+                  <span className="text-gray-400">n={s.count}</span>
+                  <TrendArrow trend={s.trend} />
+                  {isTop && (
+                    <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold text-emerald-700">
+                      TOP
+                    </span>
+                  )}
+                </div>
+                <span className="font-semibold tabular-nums text-gray-700">
+                  {s.avgEngagement.toFixed(2)}%
+                </span>
+              </div>
+              <div className="relative h-2.5 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className={cn('h-full rounded-full transition-all', tone)}
+                  style={{ width: `${Math.max(pct, 3)}%` }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function TrendArrow({ trend }: { trend: 'up' | 'down' | 'stable' }) {
+  if (trend === 'up') return <TrendingUp className="h-3 w-3 text-emerald-600" />;
+  if (trend === 'down') return <TrendingDown className="h-3 w-3 text-rose-600" />;
+  return <span className="text-[10px] text-gray-400">—</span>;
+}
+
+// ---------------------------------------------------------------------------
+// Best-times heatmap — 7 days × 4 quarter-day buckets. Highlights the slots
+// the intelligence agent named, with a per-hour activity strip on top.
+// ---------------------------------------------------------------------------
+
+const HEAT_DAYS: Array<{ label: string; full: string }> = [
+  { label: 'M', full: 'Monday' },
+  { label: 'T', full: 'Tuesday' },
+  { label: 'W', full: 'Wednesday' },
+  { label: 'T', full: 'Thursday' },
+  { label: 'F', full: 'Friday' },
+  { label: 'S', full: 'Saturday' },
+  { label: 'S', full: 'Sunday' },
+];
+
+const HEAT_BUCKETS = [
+  { label: '6 AM', start: 6, end: 12 },
+  { label: '12 PM', start: 12, end: 17 },
+  { label: '5 PM', start: 17, end: 21 },
+  { label: '9 PM', start: 21, end: 28 }, // 28 wraps to 4 AM next day
+];
+
+function HeatmapCard({
+  best,
+  worst,
+  active,
+}: {
+  best: PostingSlot[];
+  worst: PostingSlot[];
+  active: Array<{ hour: number; engagement: 'high' | 'medium' | 'low' }>;
+}) {
+  const parseHour = (time: string): number => {
+    const m = time.match(/(\d+):\d+\s*(AM|PM)/i);
+    if (!m) return -1;
+    let h = parseInt(m[1], 10) % 12;
+    if (m[2].toUpperCase() === 'PM') h += 12;
+    return h;
+  };
+  const slotKey = (day: string, hour: number): string => {
+    const dayIdx = HEAT_DAYS.findIndex((d) => d.full === day);
+    if (dayIdx === -1) return '';
+    const bucketIdx = HEAT_BUCKETS.findIndex(
+      (b) => hour >= b.start && hour < b.end
+    );
+    if (bucketIdx === -1) return '';
+    return `${dayIdx}:${bucketIdx}`;
+  };
+  const bestKeys = new Set(best.map((s) => slotKey(s.day, parseHour(s.time))));
+  const worstKeys = new Set(worst.map((s) => slotKey(s.day, parseHour(s.time))));
+
+  return (
+    <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3">
+        <div className="text-sm font-semibold text-gray-900">Best times to post</div>
+        <div className="text-[11px] text-gray-500">
+          7 days × 4 windows. Green = high engagement, red = avoid. Based on your posting history.
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="grid grid-cols-[44px_repeat(7,minmax(28px,1fr))] gap-1 text-center">
+          <div />
+          {HEAT_DAYS.map((d, i) => (
+            <div key={i} className="text-[10px] font-semibold uppercase text-gray-500">
+              {d.label}
+            </div>
+          ))}
+          {HEAT_BUCKETS.map((b, bIdx) => (
+            <Fragment key={bIdx}>
+              <div className="self-center text-[10px] text-gray-500">{b.label}</div>
+              {HEAT_DAYS.map((_, dIdx) => {
+                const key = `${dIdx}:${bIdx}`;
+                const isBest = bestKeys.has(key);
+                const isWorst = worstKeys.has(key);
+                const cls = isBest
+                  ? 'bg-emerald-500'
+                  : isWorst
+                  ? 'bg-rose-400'
+                  : 'bg-gray-100';
+                return (
+                  <div
+                    key={`c-${dIdx}-${bIdx}`}
+                    className={cn(
+                      'h-7 w-full rounded-md transition-transform hover:scale-110',
+                      cls
+                    )}
+                    title={
+                      isBest
+                        ? `Best slot — ${HEAT_DAYS[dIdx].full} ${b.label}`
+                        : isWorst
+                        ? `Avoid — ${HEAT_DAYS[dIdx].full} ${b.label}`
+                        : ''
+                    }
+                  />
+                );
+              })}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+
+      {/* Audience active-hours strip — single row, 24 cells. Helps spot why
+          a slot wins (it lines up with audience activity). */}
+      {active.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+            Audience activity by hour
+          </div>
+          <div
+            className="grid gap-0.5"
+            style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
+          >
+            {Array.from({ length: 24 }, (_, h) => {
+              const a = active.find((x) => x.hour === h);
+              const tone =
+                a?.engagement === 'high'
+                  ? 'bg-emerald-500'
+                  : a?.engagement === 'medium'
+                  ? 'bg-amber-400'
+                  : a
+                  ? 'bg-gray-300'
+                  : 'bg-gray-100';
+              return (
+                <div
+                  key={h}
+                  className={cn('h-4 rounded-sm', tone)}
+                  title={`${h}:00${a ? ` — ${a.engagement}` : ''}`}
+                />
+              );
+            })}
+          </div>
+          <div className="mt-1 flex justify-between text-[9px] text-gray-400">
+            <span>12 AM</span>
+            <span>6 AM</span>
+            <span>12 PM</span>
+            <span>6 PM</span>
+            <span>11 PM</span>
+          </div>
+        </div>
+      )}
+
+      {best.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {best.map((s, i) => (
+            <span
+              key={i}
+              className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700"
+            >
+              {s.day} {s.time} · {s.avgEngagement.toFixed(1)}%
+            </span>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hashtag cloud — size scales with avgReach; red ring = overused; purple
+// chips below = agent-recommended new tags to test.
+// ---------------------------------------------------------------------------
+
+function HashtagCloud({
+  stats,
+  recommended,
+  overused,
+}: {
+  stats: HashtagStat[];
+  recommended: string[];
+  overused: string[];
+}) {
+  if (stats.length === 0) return null;
+  const max = Math.max(...stats.map((s) => s.avgReach), 1);
+  const min = Math.min(...stats.map((s) => s.avgReach), 0);
+  const range = Math.max(max - min, 1);
+  const overusedSet = new Set(overused.map((t) => t.toLowerCase()));
+  return (
+    <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex items-center gap-1.5 text-sm font-semibold text-gray-900">
+        <Hash className="h-3.5 w-3.5 text-purple-600" /> Hashtag effectiveness
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {stats.map((s) => {
+          const intensity = (s.avgReach - min) / range;
+          const size = 11 + intensity * 7; // 11 → 18 px
+          const isOverused = overusedSet.has(s.hashtag.toLowerCase());
+          return (
+            <span
+              key={s.hashtag}
+              title={`${s.hashtag} · ${s.avgReach.toLocaleString()} avg interactions · used ${s.frequency}×`}
+              className={cn(
+                'inline-flex items-baseline gap-1 rounded-full px-2.5 py-1 font-semibold transition-colors',
+                isOverused
+                  ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-300'
+                  : intensity > 0.66
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : intensity > 0.33
+                  ? 'bg-purple-100 text-purple-800'
+                  : 'bg-gray-100 text-gray-700'
+              )}
+              style={{ fontSize: `${size}px` }}
+            >
+              {s.hashtag}
+              <span className="text-[10px] font-medium opacity-70">
+                {s.avgReach >= 1000
+                  ? `${(s.avgReach / 1000).toFixed(1)}k`
+                  : s.avgReach}
+              </span>
+            </span>
+          );
+        })}
+      </div>
+      {recommended.length > 0 && (
+        <div className="mt-4">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700">
+            Try these next
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {recommended.map((t) => (
+              <span
+                key={t}
+                className="rounded-full border border-purple-200 bg-white px-2.5 py-1 text-[11px] font-medium text-purple-700"
+              >
+                {t.startsWith('#') ? t : `#${t}`}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {overused.length > 0 && (
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-rose-100 bg-rose-50/50 p-2">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600" />
+          <div className="text-[11px] text-rose-800">
+            <span className="font-semibold">Burning a slot:</span> {overused.join(', ')} — used often but pull below-median reach.
+          </div>
+        </div>
+      )}
+    </section>
   );
 }

@@ -6,6 +6,7 @@ import { runTrendDetector } from './trend-detector';
 import { runStrategyArchitect } from './strategy-architect';
 import { runScriptWriter } from './script-writer';
 import { runQualityReviewer } from './quality-reviewer';
+import { getProfileIntelligence } from './profile-intelligence.agent';
 import type {
   AgentOutputs,
   CompetitorBrief,
@@ -42,6 +43,10 @@ export async function* runPipeline(
   const outputs: AgentOutputs = {};
   const creatorProfile = await loadCreatorProfile(organizationId);
   const competitors = await loadCompetitors(organizationId);
+  // Pull the master intelligence in parallel — it's cached, so this is
+  // usually instant; if the cache is cold we let Strategy run on whatever we
+  // have rather than block the whole pipeline. Soft-fail to null on error.
+  const intel = await getProfileIntelligence(organizationId).catch(() => null);
 
   try {
     yield { kind: 'agent_start', agent: 'profile', stage: 'ANALYZING' };
@@ -74,7 +79,8 @@ export async function* runPipeline(
       outputs.profile!,
       outputs.competitor!,
       outputs.trends!,
-      request
+      request,
+      intel
     );
     yield { kind: 'agent_done', agent: 'strategy', stage: 'STRATEGIZING', output: outputs.strategy };
   } catch (e) {
