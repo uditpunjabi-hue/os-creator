@@ -46,20 +46,20 @@ const getMcpConfig = (
         };
       case 'Cursor':
         return {
-          config: json({ mcpServers: { os-creator: { url: urlWithKey } } }),
+          config: json({ mcpServers: { 'os-creator':{ url: urlWithKey } } }),
           hint: 'Add to .cursor/mcp.json in your project root.',
         };
       case 'VS Code / Copilot':
         return {
           config: json({
-            servers: { os-creator: { type: 'http', url: urlWithKey } },
+            servers: { 'os-creator':{ type: 'http', url: urlWithKey } },
           }),
           hint: 'Add to .vscode/mcp.json in your project root.',
         };
       case 'Windsurf':
         return {
           config: json({
-            mcpServers: { os-creator: { serverUrl: urlWithKey } },
+            mcpServers: { 'os-creator':{ serverUrl: urlWithKey } },
           }),
           hint: 'Add to ~/.codeium/windsurf/mcp_config.json',
         };
@@ -75,12 +75,12 @@ const getMcpConfig = (
         };
       case 'Gemini CLI':
         return {
-          config: json({ mcpServers: { os-creator: { url: urlWithKey } } }),
+          config: json({ mcpServers: { 'os-creator':{ url: urlWithKey } } }),
           hint: 'Add to ~/.gemini/settings.json',
         };
       case 'Warp':
         return {
-          config: json({ os-creator: { url: urlWithKey } }),
+          config: json({ 'os-creator':{ url: urlWithKey } }),
           hint: 'Settings > MCP Servers > + Add, then paste this config.',
         };
     }
@@ -96,7 +96,7 @@ const getMcpConfig = (
       return {
         config: json({
           mcpServers: {
-            os-creator: { url: urlBase, headers: { Authorization: bearer } },
+            'os-creator':{ url: urlBase, headers: { Authorization: bearer } },
           },
         }),
         hint: 'Add to .cursor/mcp.json in your project root.',
@@ -105,7 +105,7 @@ const getMcpConfig = (
       return {
         config: json({
           servers: {
-            os-creator: {
+            'os-creator':{
               type: 'http',
               url: urlBase,
               headers: { Authorization: bearer },
@@ -118,7 +118,7 @@ const getMcpConfig = (
       return {
         config: json({
           mcpServers: {
-            os-creator: {
+            'os-creator':{
               serverUrl: urlBase,
               headers: { Authorization: bearer },
             },
@@ -130,7 +130,7 @@ const getMcpConfig = (
       return {
         config: json({
           'amp.mcpServers': {
-            os-creator: { url: urlBase, headers: { Authorization: bearer } },
+            'os-creator':{ url: urlBase, headers: { Authorization: bearer } },
           },
         }),
         hint: 'Add to your Amp settings.json',
@@ -144,7 +144,7 @@ const getMcpConfig = (
       return {
         config: json({
           mcpServers: {
-            os-creator: { url: urlBase, headers: { Authorization: bearer } },
+            'os-creator':{ url: urlBase, headers: { Authorization: bearer } },
           },
         }),
         hint: 'Add to ~/.gemini/settings.json',
@@ -152,7 +152,7 @@ const getMcpConfig = (
     case 'Warp':
       return {
         config: json({
-          os-creator: { url: urlBase, headers: { Authorization: bearer } },
+          'os-creator':{ url: urlBase, headers: { Authorization: bearer } },
         }),
         hint: 'Settings > MCP Servers > + Add, then paste this config.',
       };
