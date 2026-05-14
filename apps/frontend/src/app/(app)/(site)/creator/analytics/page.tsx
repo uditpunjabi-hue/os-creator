@@ -1,25 +1,37 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Eye,
   Heart,
   MessageSquare,
-  Bookmark,
-  Share2,
-  TrendingUp,
-  TrendingDown,
   Sparkles,
   Instagram,
   Loader2,
+  TrendingUp,
+  TrendingDown,
+  ArrowUpRight,
+  RefreshCw,
+  Crown,
+  Hash,
+  Clock,
+  Lightbulb,
+  AlertCircle,
+  Trophy,
 } from 'lucide-react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import {
+  Skeleton,
   SkeletonStatGrid,
   SkeletonList,
 } from '@gitroom/frontend/components/ui/skeleton';
 import { cn } from '@gitroom/frontend/lib/utils';
+
+// ---------------------------------------------------------------------------
+// Types — mirror the API payloads so the page can be picked apart cheaply.
+// ---------------------------------------------------------------------------
 
 interface IgMedia {
   id: string;
@@ -49,11 +61,45 @@ interface ContentTypePerf {
   avgEngagementPct: number;
 }
 
+interface BestTime {
+  weekday: string;
+  hour: number;
+  avgInteractions: number;
+  posts: number;
+}
+
+interface FollowerTrendPoint {
+  date: string;
+  count: number;
+}
+
 interface Insights {
   connected: boolean;
   engagementRate: number | null;
   contentTypePerformance: ContentTypePerf[];
+  bestTimes: BestTime[];
+  followerTrend: FollowerTrendPoint[];
 }
+
+interface WeeklyReport {
+  connected: boolean;
+  generatedAt: string | null;
+  periodLabel: string;
+  postsLast7Days: number;
+  recapHeadline: string;
+  whatWorked: string[];
+  whatDidnt: string[];
+  recommendations: string[];
+  bestTimeToPost: string;
+  formatBreakdown: Array<{ format: string; count: number; avgInteractions: number; verdict: string }>;
+  topHashtags: Array<{ tag: string; uses: number; avgInteractions: number }>;
+}
+
+type SortKey = 'recent' | 'likes' | 'comments' | 'engagement';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 const fmt = (n: number) =>
   n >= 1_000_000
@@ -61,6 +107,8 @@ const fmt = (n: number) =>
     : n >= 1_000
     ? `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`
     : `${n}`;
+
+const fmtSigned = (n: number) => `${n >= 0 ? '+' : ''}${fmt(n)}`;
 
 const fmtAgo = (iso: string) => {
   const ms = Date.now() - new Date(iso).getTime();
@@ -72,12 +120,34 @@ const fmtAgo = (iso: string) => {
   return `${Math.floor(d / 30)} months ago`;
 };
 
+const engagementOf = (m: IgMedia, followers: number | null): number | null => {
+  if (!followers || followers <= 0) return null;
+  return ((m.likeCount + m.commentsCount) / followers) * 100;
+};
+
+const engagementTone = (pct: number | null) => {
+  if (pct == null) return 'bg-gray-100 text-gray-700';
+  if (pct > 5) return 'bg-emerald-100 text-emerald-700';
+  if (pct >= 2) return 'bg-amber-100 text-amber-700';
+  return 'bg-rose-100 text-rose-700';
+};
+
+const mediaTypeLabel = (t: string) =>
+  t === 'VIDEO' ? 'Reel' : t === 'CAROUSEL_ALBUM' ? 'Carousel' : t === 'STORY' ? 'Story' : 'Image';
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
 export default function CreatorAnalyticsPage() {
   const fetch = useFetch();
   const { backendUrl } = useVariables();
   const [profile, setProfile] = useState<IgProfile | null>(null);
   const [insights, setInsights] = useState<Insights | null>(null);
+  const [report, setReport] = useState<WeeklyReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [sort, setSort] = useState<SortKey>('recent');
 
   useEffect(() => {
     let cancelled = false;
@@ -87,12 +157,10 @@ export default function CreatorAnalyticsPage() {
           fetch('/creator/profile'),
           fetch('/creator/insights'),
         ]);
-        if (!cancelled) {
-          if (pRes.ok) setProfile(await pRes.json());
-          if (iRes.ok) setInsights(await iRes.json());
-          setLoading(false);
-        }
-      } catch {
+        if (cancelled) return;
+        if (pRes.ok) setProfile(await pRes.json());
+        if (iRes.ok) setInsights(await iRes.json());
+      } finally {
         if (!cancelled) setLoading(false);
       }
     })();
@@ -101,7 +169,29 @@ export default function CreatorAnalyticsPage() {
     };
   }, [fetch]);
 
+  // AI weekly report — fire-and-forget after the page renders, so the heavy
+  // numbers up top render immediately. 24h server-side cache means repeat
+  // visits within a day are near-instant.
+  useEffect(() => {
+    if (!profile?.connected) return;
+    let cancelled = false;
+    setReportLoading(true);
+    (async () => {
+      try {
+        const r = await fetch('/creator/weekly-report');
+        if (!cancelled && r.ok) setReport((await r.json()) as WeeklyReport);
+      } finally {
+        if (!cancelled) setReportLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fetch, profile?.connected]);
+
   const live = profile?.connected ?? false;
+  const followers = profile?.followers ?? null;
+
   const media = useMemo(
     () =>
       live
@@ -112,31 +202,74 @@ export default function CreatorAnalyticsPage() {
     [live, profile]
   );
 
-  const totals = useMemo(() => {
-    const likes = media.reduce((s, m) => s + m.likeCount, 0);
-    const comments = media.reduce((s, m) => s + m.commentsCount, 0);
-    return {
-      likes,
-      comments,
-      interactions: likes + comments,
-      posts: media.length,
-      avg: media.length ? Math.round((likes + comments) / media.length) : 0,
-    };
+  // Summary: last 30 days. Most creators post a few times a week so 30d is
+  // the meaningful "reach over recent activity" window.
+  const last30 = useMemo(() => {
+    const cutoff = Date.now() - 30 * 86400_000;
+    return media.filter((m) => +new Date(m.timestamp) >= cutoff);
   }, [media]);
 
-  const stats = useMemo(
-    () => [
-      { label: 'Interactions', value: fmt(totals.interactions), icon: Eye },
-      { label: 'Likes', value: fmt(totals.likes), icon: Heart },
-      { label: 'Comments', value: fmt(totals.comments), icon: MessageSquare },
-      { label: 'Avg / post', value: fmt(totals.avg), icon: TrendingUp },
-      { label: 'Posts pulled', value: String(totals.posts), icon: Sparkles },
-    ],
-    [totals]
-  );
+  const totals = useMemo(() => {
+    const likes = last30.reduce((s, m) => s + m.likeCount, 0);
+    const comments = last30.reduce((s, m) => s + m.commentsCount, 0);
+    return { likes, comments, interactions: likes + comments, posts: last30.length };
+  }, [last30]);
 
-  // "Predicted" baseline = creator's average — flag posts that beat their own average.
-  const baseline = totals.avg || 1;
+  const avgEngagement = useMemo(() => {
+    if (!followers || last30.length === 0) return null;
+    const sum = last30.reduce(
+      (s, m) => s + (m.likeCount + m.commentsCount) / followers,
+      0
+    );
+    return (sum / last30.length) * 100;
+  }, [last30, followers]);
+
+  const bestPost = useMemo(() => {
+    if (media.length === 0) return null;
+    return [...media].sort(
+      (a, b) =>
+        b.likeCount + b.commentsCount - (a.likeCount + a.commentsCount)
+    )[0];
+  }, [media]);
+
+  // Growth = first-to-last delta over the API-provided trend window (the IG
+  // /insights endpoint emits a daily series). Falls back to interactions
+  // momentum when no follower history is available.
+  const growth = useMemo(() => {
+    const trend = insights?.followerTrend ?? [];
+    if (trend.length >= 2) {
+      const first = trend[0].count;
+      const last = trend[trend.length - 1].count;
+      return { delta: last - first, label: `${trend.length} day${trend.length === 1 ? '' : 's'}` };
+    }
+    return null;
+  }, [insights]);
+
+  const sortedMedia = useMemo(() => {
+    const list = [...media];
+    switch (sort) {
+      case 'likes':
+        return list.sort((a, b) => b.likeCount - a.likeCount);
+      case 'comments':
+        return list.sort((a, b) => b.commentsCount - a.commentsCount);
+      case 'engagement':
+        return list.sort(
+          (a, b) => (engagementOf(b, followers) ?? 0) - (engagementOf(a, followers) ?? 0)
+        );
+      default:
+        return list; // already sorted recent-first
+    }
+  }, [media, sort, followers]);
+
+  const refreshReport = async () => {
+    setReportLoading(true);
+    try {
+      const r = await fetch('/creator/weekly-report?refresh=1');
+      if (r.ok) setReport((await r.json()) as WeeklyReport);
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -146,8 +279,8 @@ export default function CreatorAnalyticsPage() {
             <div className="text-lg font-semibold text-gray-900">Analytics</div>
             <div className="truncate text-xs text-gray-500">
               {live && profile?.handle
-                ? `${profile.handle} · ${totals.posts} recent posts`
-                : 'Connect Instagram to see post analytics'}
+                ? `${profile.handle} · ${totals.posts} posts in the last 30 days`
+                : 'Connect Instagram to see live analytics'}
             </div>
           </div>
           <span
@@ -162,152 +295,782 @@ export default function CreatorAnalyticsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
-        {!loading && !live && (
-          <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-            <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
-              <Instagram className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-gray-900">
-                Connect Instagram to see real post analytics
-              </div>
-              <div className="mt-0.5 text-xs text-gray-600">
-                Once connected, this page shows actual likes, comments, and interactions for every recent post.
-              </div>
-            </div>
-            <a
-              href={`${backendUrl}/oauth/instagram/start`}
-              className="shrink-0 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-700"
-            >
-              Connect
-            </a>
-          </div>
-        )}
+        {!loading && !live && <ConnectPrompt backendUrl={backendUrl} />}
 
         {loading && (
           <>
-            <SkeletonStatGrid count={5} />
+            <SkeletonStatGrid count={4} />
+            <div className="mt-4">
+              <Skeleton className="h-32 w-full rounded-2xl" />
+            </div>
             <div className="mt-4">
               <SkeletonList count={3} />
             </div>
           </>
         )}
-        {!loading && (
-        <>
-        {/* Summary tiles */}
-        <div className="grid grid-cols-2 gap-2 lg:grid-cols-5 lg:gap-3">
-          {stats.map((s) => {
-            const Icon = s.icon;
-            return (
-              <div
-                key={s.label}
-                className="flex flex-col gap-1.5 rounded-2xl border border-gray-200 bg-white p-4"
-              >
-                <div className="flex items-center justify-between text-gray-500">
-                  <span className="text-[10px] uppercase tracking-wide">{s.label}</span>
-                  <Icon className="h-3.5 w-3.5" />
-                </div>
-                <div className="text-xl font-semibold text-gray-900 lg:text-2xl">{s.value}</div>
-              </div>
-            );
-          })}
-        </div>
 
-        {/* Content type breakdown from real insights */}
-        {live && (insights?.contentTypePerformance?.length ?? 0) > 0 && (
-          <div className="mt-4 rounded-2xl border border-purple-100 bg-purple-50/40 p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-purple-700">
-              Performance by content type
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
-              {(insights?.contentTypePerformance ?? []).map((c) => (
-                <div key={c.format} className="rounded-xl bg-white px-3 py-2">
-                  <div className="text-[10px] uppercase tracking-wide text-gray-500">
-                    {c.format} · n={c.count}
-                  </div>
-                  <div className="mt-0.5 text-base font-semibold text-gray-900">
-                    {c.avgInteractions.toLocaleString()}
-                  </div>
-                  <div className="text-[10px] text-gray-500">
-                    {c.avgEngagementPct}% engagement
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {!loading && live && (
+          <>
+            {/* Top summary cards */}
+            <SummaryGrid
+              reachLast30={totals.interactions}
+              avgEngagement={avgEngagement}
+              bestPost={bestPost}
+              followers={followers}
+              growth={growth}
+            />
 
-        {/* Posts list */}
-        <div className="mt-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
-            Recent posts
-          </div>
-          <ul className="flex flex-col gap-2">
-            {media.map((p) => {
-              const interactions = p.likeCount + p.commentsCount;
-              const diff = interactions - baseline;
-              const diffPct = baseline > 0 ? Math.round((diff / baseline) * 100) : 0;
-              const beat = diff >= 0;
-              return (
-                <li
-                  key={p.id}
-                  className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-4"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex min-w-0 items-start gap-3">
-                      {p.thumbnailUrl || p.mediaUrl ? (
-                        <img
-                          src={p.thumbnailUrl ?? p.mediaUrl ?? ''}
-                          alt=""
-                          className="h-14 w-14 shrink-0 rounded-lg object-cover"
-                        />
-                      ) : null}
-                      <div className="min-w-0">
-                        <div className="line-clamp-2 text-sm font-semibold text-gray-900">
-                          {p.caption ?? '(no caption)'}
-                        </div>
-                        <div className="mt-0.5 text-[11px] text-gray-500">
-                          {p.mediaType === 'VIDEO' ? 'Reel' : p.mediaType === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image'} · {fmtAgo(p.timestamp)}
-                        </div>
-                      </div>
-                    </div>
-                    <span
-                      className={cn(
-                        'inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold',
-                        beat ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                      )}
-                    >
-                      {beat ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                      {beat ? '+' : ''}
-                      {diffPct}% vs avg
-                    </span>
-                  </div>
+            {/* Best-performing post — big card, CTA to remix */}
+            {bestPost && <BestPostCard post={bestPost} followers={followers} />}
 
-                  <div className="grid grid-cols-3 gap-1.5 text-center">
-                    <Metric icon={Heart} label="Likes" value={fmt(p.likeCount)} />
-                    <Metric icon={MessageSquare} label="Comments" value={fmt(p.commentsCount)} />
-                    <Metric icon={Eye} label="Total" value={fmt(interactions)} />
-                  </div>
-                </li>
-              );
-            })}
-            {live && media.length === 0 && (
-              <li className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
-                Instagram returned no recent media.
-              </li>
+            {/* AI Weekly report */}
+            <WeeklyReportPanel
+              report={report}
+              loading={reportLoading && !report}
+              onRefresh={refreshReport}
+              refreshing={reportLoading && !!report}
+            />
+
+            {/* Growth chart — follower trend if we have it, else engagement
+                over the last 12 posts as a fallback */}
+            <GrowthChart
+              followerTrend={insights?.followerTrend ?? []}
+              media={media}
+              followers={followers}
+            />
+
+            {/* Content-type breakdown */}
+            {insights && insights.contentTypePerformance.length > 0 && (
+              <FormatBreakdown perfs={insights.contentTypePerformance} />
             )}
-          </ul>
-        </div>
-        </>
+
+            {/* Post performance list */}
+            <PostList
+              media={sortedMedia}
+              followers={followers}
+              sort={sort}
+              onSort={setSort}
+            />
+          </>
         )}
       </div>
     </div>
   );
 }
 
-function Metric({ icon: Icon, label, value }: { icon: typeof Eye; label: string; value: string }) {
+// ---------------------------------------------------------------------------
+// Connect prompt
+// ---------------------------------------------------------------------------
+
+function ConnectPrompt({ backendUrl }: { backendUrl: string }) {
   return (
-    <div className="rounded-lg bg-gray-50 px-1.5 py-2">
+    <div className="mb-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+        <Instagram className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold text-gray-900">
+          Connect Instagram to see real post analytics
+        </div>
+        <div className="mt-0.5 text-xs text-gray-600">
+          We'll pull likes, comments, engagement, and best-time data for every recent post.
+        </div>
+      </div>
+      <a
+        href={`${backendUrl}/oauth/instagram/start`}
+        className="shrink-0 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-purple-700"
+      >
+        Connect
+      </a>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Summary grid
+// ---------------------------------------------------------------------------
+
+function SummaryGrid({
+  reachLast30,
+  avgEngagement,
+  bestPost,
+  followers,
+  growth,
+}: {
+  reachLast30: number;
+  avgEngagement: number | null;
+  bestPost: IgMedia | null;
+  followers: number | null;
+  growth: { delta: number; label: string } | null;
+}) {
+  const engTone =
+    avgEngagement == null
+      ? 'text-gray-900'
+      : avgEngagement > 5
+      ? 'text-emerald-600'
+      : avgEngagement >= 2
+      ? 'text-amber-600'
+      : 'text-rose-600';
+
+  const bestPct = bestPost ? engagementOf(bestPost, followers) : null;
+
+  return (
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 lg:gap-3">
+      <StatCard
+        label="Total interactions"
+        sublabel="last 30 days"
+        value={fmt(reachLast30)}
+        icon={Eye}
+      />
+      <StatCard
+        label="Avg engagement"
+        sublabel="per post"
+        value={avgEngagement != null ? `${avgEngagement.toFixed(2)}%` : '—'}
+        valueClass={engTone}
+        icon={Heart}
+      />
+      <StatCard
+        label="Followers"
+        sublabel={
+          growth
+            ? `${fmtSigned(growth.delta)} over ${growth.label}`
+            : followers
+            ? 'Live from Instagram'
+            : 'Need IG insights'
+        }
+        value={followers != null ? fmt(followers) : '—'}
+        icon={TrendingUp}
+        valueClass={growth && growth.delta >= 0 ? 'text-emerald-600' : growth && growth.delta < 0 ? 'text-rose-600' : undefined}
+      />
+      <StatCard
+        label="Best post"
+        sublabel={bestPct != null ? `${bestPct.toFixed(2)}% engagement` : 'No recent posts'}
+        value={bestPost ? `${fmt(bestPost.likeCount + bestPost.commentsCount)}` : '—'}
+        icon={Crown}
+        thumbnail={bestPost?.thumbnailUrl ?? bestPost?.mediaUrl ?? undefined}
+      />
+    </div>
+  );
+}
+
+function StatCard({
+  label,
+  sublabel,
+  value,
+  valueClass,
+  icon: Icon,
+  thumbnail,
+}: {
+  label: string;
+  sublabel?: string;
+  value: string;
+  valueClass?: string;
+  icon: typeof Eye;
+  thumbnail?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="flex items-center justify-between text-gray-500">
+        <span className="text-[10px] uppercase tracking-wide">{label}</span>
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="h-6 w-6 rounded object-cover"
+          />
+        ) : (
+          <Icon className="h-3.5 w-3.5" />
+        )}
+      </div>
+      <div className={cn('text-xl font-semibold leading-tight text-gray-900 lg:text-2xl', valueClass)}>
+        {value}
+      </div>
+      {sublabel && <div className="text-[11px] text-gray-500">{sublabel}</div>}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Best post card
+// ---------------------------------------------------------------------------
+
+function BestPostCard({
+  post,
+  followers,
+}: {
+  post: IgMedia;
+  followers: number | null;
+}) {
+  const interactions = post.likeCount + post.commentsCount;
+  const pct = engagementOf(post, followers);
+  const captionFragment = (post.caption ?? '').slice(0, 80) || '(no caption)';
+  const remixPrompt = `Create a new post that builds on the angle from my piece titled "${captionFragment.slice(0, 80)}". Keep what worked, push it harder.`;
+
+  return (
+    <div className="mt-4 flex flex-col items-start gap-4 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-4 lg:flex-row lg:items-center">
+      <div className="flex shrink-0 items-center gap-3">
+        {(post.thumbnailUrl || post.mediaUrl) && (
+          <img
+            src={post.thumbnailUrl ?? post.mediaUrl ?? ''}
+            alt=""
+            referrerPolicy="no-referrer"
+            className="h-20 w-20 shrink-0 rounded-xl object-cover ring-2 ring-amber-200"
+          />
+        )}
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-100 text-amber-700 lg:hidden">
+          <Trophy className="h-4 w-4" />
+        </div>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-700">
+          <Trophy className="hidden h-3 w-3 lg:inline" /> Best performing post
+        </div>
+        <div className="mt-1 line-clamp-2 text-sm font-semibold text-gray-900">
+          {captionFragment}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-600">
+          <span>{mediaTypeLabel(post.mediaType)}</span>
+          <span>·</span>
+          <span>{fmtAgo(post.timestamp)}</span>
+          <span>·</span>
+          <span>♥ {fmt(post.likeCount)} · 💬 {fmt(post.commentsCount)}</span>
+          {pct != null && (
+            <>
+              <span>·</span>
+              <span className={cn('font-semibold', pct > 5 ? 'text-emerald-700' : pct >= 2 ? 'text-amber-700' : 'text-rose-700')}>
+                {pct.toFixed(2)}% engagement
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="flex w-full shrink-0 flex-col gap-2 lg:w-auto lg:flex-row">
+        <Link
+          href={`/creator/content/scripts?prompt=${encodeURIComponent(remixPrompt)}`}
+          className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full bg-[#F59E0B] px-4 text-xs font-semibold text-black hover:brightness-110"
+        >
+          <Sparkles className="h-3.5 w-3.5" /> Create similar
+        </Link>
+        {post.permalink && (
+          <a
+            href={post.permalink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-gray-300 bg-white px-4 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+          >
+            Open on IG <ArrowUpRight className="h-3.5 w-3.5" />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI weekly report
+// ---------------------------------------------------------------------------
+
+function WeeklyReportPanel({
+  report,
+  loading,
+  onRefresh,
+  refreshing,
+}: {
+  report: WeeklyReport | null;
+  loading: boolean;
+  onRefresh: () => void;
+  refreshing: boolean;
+}) {
+  return (
+    <section className="mt-5 rounded-2xl border border-purple-100 bg-purple-50/40 p-4">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-purple-700">
+            <Sparkles className="h-3 w-3" /> Your week in review · powered by Claude
+          </div>
+          {report?.periodLabel && (
+            <div className="text-[11px] text-gray-500">{report.periodLabel} · {report.postsLast7Days} post{report.postsLast7Days === 1 ? '' : 's'}</div>
+          )}
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={loading || refreshing}
+          className="inline-flex h-8 items-center gap-1 rounded-full border border-purple-200 bg-white px-3 text-[11px] font-medium text-purple-700 hover:border-purple-300 disabled:opacity-50"
+        >
+          {refreshing || loading ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
+          {refreshing ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+
+      {loading && (
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-4 w-3/4" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+          <Skeleton className="h-16 w-full rounded-xl" />
+        </div>
+      )}
+
+      {!loading && report && (
+        <div className="flex flex-col gap-3">
+          {report.recapHeadline && (
+            <p className="text-sm font-semibold text-gray-900">{report.recapHeadline}</p>
+          )}
+
+          {report.whatWorked.length > 0 && (
+            <ReportBlock
+              icon={Lightbulb}
+              label="What worked"
+              accent="emerald"
+              items={report.whatWorked}
+            />
+          )}
+          {report.whatDidnt.length > 0 && (
+            <ReportBlock
+              icon={AlertCircle}
+              label="What didn't"
+              accent="rose"
+              items={report.whatDidnt}
+            />
+          )}
+          {report.recommendations.length > 0 && (
+            <ReportBlock
+              icon={Sparkles}
+              label="Next week"
+              accent="purple"
+              items={report.recommendations}
+            />
+          )}
+
+          {(report.bestTimeToPost || report.formatBreakdown.length > 0) && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {report.bestTimeToPost && (
+                <div className="rounded-xl border border-gray-200 bg-white p-3">
+                  <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    <Clock className="h-3 w-3" /> Best time to post
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-gray-900">
+                    {report.bestTimeToPost}
+                  </div>
+                </div>
+              )}
+              {report.formatBreakdown.length > 0 && (
+                <div className="rounded-xl border border-gray-200 bg-white p-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Format performance
+                  </div>
+                  <ul className="mt-1 flex flex-col gap-0.5 text-[11px] text-gray-700">
+                    {report.formatBreakdown.map((f) => (
+                      <li key={f.format}>
+                        <span className="font-semibold text-gray-900">{f.format}</span>
+                        <span className="text-gray-500"> · n={f.count} · {f.avgInteractions.toLocaleString()} avg</span>
+                        <span className="ml-1 text-gray-500">— {f.verdict}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {report.topHashtags.length > 0 && (
+            <div className="rounded-xl border border-gray-200 bg-white p-3">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                <Hash className="h-3 w-3" /> Highest-impact hashtags
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {report.topHashtags.map((h) => (
+                  <span
+                    key={h.tag}
+                    className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-medium text-purple-700"
+                  >
+                    {h.tag}
+                    <span className="text-purple-400">·</span>
+                    <span className="text-purple-600">{h.avgInteractions.toLocaleString()}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!loading && !report && (
+        <div className="rounded-xl border border-dashed border-purple-200 bg-white/60 p-3 text-xs text-gray-600">
+          AI recap not available yet — hit Refresh to generate one.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReportBlock({
+  icon: Icon,
+  label,
+  accent,
+  items,
+}: {
+  icon: typeof Sparkles;
+  label: string;
+  accent: 'emerald' | 'rose' | 'purple';
+  items: string[];
+}) {
+  const tones = {
+    emerald: 'border-emerald-200 bg-emerald-50/60 text-emerald-700',
+    rose: 'border-rose-200 bg-rose-50/60 text-rose-700',
+    purple: 'border-purple-200 bg-purple-50/60 text-purple-700',
+  } as const;
+  return (
+    <div className={cn('rounded-xl border p-3', tones[accent])}>
+      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
+        <Icon className="h-3 w-3" /> {label}
+      </div>
+      <ul className="mt-1.5 ml-3 list-disc text-xs leading-relaxed text-gray-800">
+        {items.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Growth chart — sparkline + interactive data points
+// ---------------------------------------------------------------------------
+
+function GrowthChart({
+  followerTrend,
+  media,
+  followers,
+}: {
+  followerTrend: FollowerTrendPoint[];
+  media: IgMedia[];
+  followers: number | null;
+}) {
+  // Prefer real follower history; fall back to per-post engagement so the
+  // chart isn't blank just because IG insights returned nothing.
+  const usingFollowers = followerTrend.length >= 2;
+  const points = usingFollowers
+    ? followerTrend.map((p, i) => ({ id: `${p.date}-${i}`, label: p.date, value: p.count }))
+    : [...media]
+        .slice(0, 12)
+        .reverse()
+        .map((m, i) => ({
+          id: m.id ?? `${i}`,
+          label: new Date(m.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+          value: engagementOf(m, followers) ?? m.likeCount + m.commentsCount,
+        }));
+
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+
+  if (points.length < 2) {
+    return null;
+  }
+
+  const max = Math.max(...points.map((p) => p.value));
+  const min = Math.min(...points.map((p) => p.value));
+  const range = Math.max(max - min, 1);
+
+  // SVG plot — 100% width × fixed 110 height. Points are tap targets via
+  // invisible circles so the tooltip works on mobile.
+  const W = 320;
+  const H = 110;
+  const coords = points.map((p, i) => {
+    const x = (i / (points.length - 1)) * W;
+    const y = H - 10 - ((p.value - min) / range) * (H - 20);
+    return { ...p, x, y };
+  });
+  const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x},${c.y}`).join(' ');
+  const area = `${line} L${W},${H} L0,${H} Z`;
+  const active = activeIdx != null ? coords[activeIdx] : null;
+  const delta =
+    usingFollowers && coords.length >= 2
+      ? coords[coords.length - 1].value - coords[0].value
+      : null;
+
+  return (
+    <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-gray-900">
+            {usingFollowers ? 'Follower growth' : 'Engagement trend'}
+          </div>
+          <div className="text-[11px] text-gray-500">
+            {usingFollowers
+              ? delta != null
+                ? `${delta >= 0 ? '+' : ''}${fmt(delta)} over ${points.length} day${points.length === 1 ? '' : 's'}`
+                : 'Daily follower count from IG /insights'
+              : 'Engagement % across your most recent 12 posts (tap a point for details)'}
+          </div>
+        </div>
+      </div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="h-28 w-full"
+        preserveAspectRatio="none"
+        onMouseLeave={() => setActiveIdx(null)}
+      >
+        <defs>
+          <linearGradient id="anl-grow" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#7C3AED" stopOpacity="0.25" />
+            <stop offset="100%" stopColor="#7C3AED" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill="url(#anl-grow)" />
+        <path
+          d={line}
+          fill="none"
+          stroke="#7C3AED"
+          strokeWidth="2"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {coords.map((c, i) => (
+          <g key={c.id}>
+            <circle cx={c.x} cy={c.y} r="2.5" fill="#7C3AED" />
+            <circle
+              cx={c.x}
+              cy={c.y}
+              r="10"
+              fill="transparent"
+              onMouseEnter={() => setActiveIdx(i)}
+              onClick={() => setActiveIdx(i)}
+              style={{ cursor: 'pointer' }}
+            />
+          </g>
+        ))}
+        {active && (
+          <g>
+            <line
+              x1={active.x}
+              y1={0}
+              x2={active.x}
+              y2={H}
+              stroke="#7C3AED"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+              opacity="0.5"
+            />
+            <circle cx={active.x} cy={active.y} r="4" fill="#7C3AED" stroke="#fff" strokeWidth="2" />
+          </g>
+        )}
+      </svg>
+      {active && (
+        <div className="mt-1 text-[11px] text-gray-700">
+          <span className="font-semibold">{active.label}:</span>{' '}
+          {usingFollowers ? `${fmt(active.value)} followers` : `${active.value.toFixed(2)}% engagement`}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Format breakdown
+// ---------------------------------------------------------------------------
+
+function FormatBreakdown({ perfs }: { perfs: ContentTypePerf[] }) {
+  return (
+    <section className="mt-5">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Performance by content type
+      </h2>
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {perfs.map((c) => {
+          const tone =
+            c.avgEngagementPct > 5
+              ? 'text-emerald-700'
+              : c.avgEngagementPct >= 2
+              ? 'text-amber-700'
+              : 'text-rose-700';
+          return (
+            <div key={c.format} className="rounded-2xl border border-gray-200 bg-white p-3">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500">
+                {c.format} · n={c.count}
+              </div>
+              <div className="mt-0.5 text-lg font-semibold text-gray-900">
+                {c.avgInteractions.toLocaleString()}
+              </div>
+              <div className="text-[11px] text-gray-500">avg interactions</div>
+              <div className={cn('mt-1 text-[11px] font-semibold', tone)}>
+                {c.avgEngagementPct.toFixed(2)}% engagement
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Sortable post list
+// ---------------------------------------------------------------------------
+
+function PostList({
+  media,
+  followers,
+  sort,
+  onSort,
+}: {
+  media: IgMedia[];
+  followers: number | null;
+  sort: SortKey;
+  onSort: (s: SortKey) => void;
+}) {
+  const sorts: { id: SortKey; label: string }[] = [
+    { id: 'recent', label: 'Most recent' },
+    { id: 'likes', label: 'Most likes' },
+    { id: 'comments', label: 'Most comments' },
+    { id: 'engagement', label: 'Highest engagement' },
+  ];
+  // Baseline for "vs predicted" — if we had a Script with predictedEngagement
+  // we'd thread that through, but lacking that for arbitrary posts we use the
+  // creator's per-post average as the predicted baseline.
+  const baseline = useMemo(() => {
+    if (media.length === 0) return 0;
+    return media.reduce((s, m) => s + m.likeCount + m.commentsCount, 0) / media.length;
+  }, [media]);
+
+  return (
+    <section className="mt-5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          Post performance
+        </h2>
+        <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+          {sorts.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => onSort(s.id)}
+              className={cn(
+                'h-8 shrink-0 rounded-full border px-3 text-[11px] font-medium',
+                sort === s.id
+                  ? 'border-purple-600 bg-purple-600 text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+              )}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <ul className="flex flex-col gap-2">
+        {media.map((p) => (
+          <li key={p.id}>
+            <PostRow post={p} followers={followers} baseline={baseline} />
+          </li>
+        ))}
+        {media.length === 0 && (
+          <li className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
+            No posts yet — Instagram returned no recent media.
+          </li>
+        )}
+      </ul>
+    </section>
+  );
+}
+
+function PostRow({
+  post,
+  followers,
+  baseline,
+}: {
+  post: IgMedia;
+  followers: number | null;
+  baseline: number;
+}) {
+  const interactions = post.likeCount + post.commentsCount;
+  const pct = engagementOf(post, followers);
+  const diff = interactions - baseline;
+  const diffPct = baseline > 0 ? Math.round((diff / baseline) * 100) : 0;
+  const beat = diff >= 0;
+  const remixPrompt = `Create a new post that builds on the angle from my piece titled "${(post.caption ?? '').slice(0, 80)}". Keep what worked, push it harder.`;
+
+  return (
+    <div className="flex flex-col gap-3 rounded-2xl border border-gray-200 bg-white p-3 lg:flex-row lg:items-start">
+      <div className="flex flex-1 items-start gap-3 lg:min-w-0">
+        {(post.thumbnailUrl || post.mediaUrl) && (
+          <img
+            src={post.thumbnailUrl ?? post.mediaUrl ?? ''}
+            alt=""
+            referrerPolicy="no-referrer"
+            loading="lazy"
+            decoding="async"
+            className="h-16 w-16 shrink-0 rounded-lg object-cover"
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="line-clamp-2 text-sm font-semibold text-gray-900">
+            {post.caption ?? '(no caption)'}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
+            <span>{mediaTypeLabel(post.mediaType)}</span>
+            <span>·</span>
+            <span>{fmtAgo(post.timestamp)}</span>
+            {pct != null && (
+              <>
+                <span>·</span>
+                <span className={cn('rounded-full px-2 py-0.5 font-semibold', engagementTone(pct))}>
+                  {pct.toFixed(2)}%
+                </span>
+              </>
+            )}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-1.5 text-center">
+            <Metric icon={Heart} label="Likes" value={fmt(post.likeCount)} />
+            <Metric icon={MessageSquare} label="Comments" value={fmt(post.commentsCount)} />
+            <Metric icon={Eye} label="Total" value={fmt(interactions)} />
+          </div>
+        </div>
+      </div>
+      <div className="flex shrink-0 flex-col items-stretch gap-2 lg:w-44">
+        <span
+          className={cn(
+            'inline-flex items-center justify-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+            beat ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+          )}
+        >
+          {beat ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+          {beat ? '+' : ''}
+          {diffPct}% vs predicted
+        </span>
+        <Link
+          href={`/creator/content/scripts?prompt=${encodeURIComponent(remixPrompt)}`}
+          className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-purple-200 bg-white px-3 text-[11px] font-semibold text-purple-700 hover:border-purple-300"
+        >
+          <Sparkles className="h-3 w-3" /> Create similar
+        </Link>
+        {post.permalink && (
+          <a
+            href={post.permalink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-full border border-gray-200 bg-white px-3 text-[11px] font-medium text-gray-700 hover:border-gray-300"
+          >
+            Open on IG <ArrowUpRight className="h-3 w-3" />
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Metric({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: typeof Eye;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-lg bg-gray-50 px-1.5 py-1.5">
       <Icon className="mx-auto h-3 w-3 text-gray-400" />
       <div className="mt-0.5 text-[13px] font-semibold text-gray-900">{value}</div>
       <div className="text-[9px] uppercase tracking-wide text-gray-400">{label}</div>
