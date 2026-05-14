@@ -39,5 +39,9 @@ export async function runScriptWriter(
       .filter(Boolean)
       .join('\n'),
     maxTokens: 4000,
+    // Script writer is the heaviest call — 4000 tokens of structured output
+    // can legitimately take 20-25s. The 6-agent pipeline route already runs
+    // on a 300s function budget, so a 30s call here is safe.
+    timeoutMs: 30_000,
   });
 }

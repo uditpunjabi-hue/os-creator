@@ -98,6 +98,11 @@ export interface ProfileIntelligence {
 
   profileHealthScore: number;
   scoreBreakdown: ScoreBreakdown;
+
+  // True when the Claude narrative call failed; deterministic stats are still
+  // valid (scores, breakdowns, times). UI uses this to show a "narrative
+  // regenerating" pill instead of fields that look intentionally empty.
+  partial?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +112,10 @@ export interface ProfileIntelligence {
 
 const CACHE_KEY = (orgId: string) => `creator:intelligence:${orgId}`;
 const CACHE_TTL = 24 * 60 * 60;
+// When Claude times out, only the narrative half is missing; the
+// deterministic stats are real. Cache short so we retry quickly without
+// hammering the API every page load.
+const PARTIAL_CACHE_TTL = 5 * 60;
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 const inFlight = new Map<string, Promise<ProfileIntelligence>>();
 
@@ -142,7 +151,11 @@ async function regenerate(orgId: string): Promise<ProfileIntelligence> {
   inFlight.set(orgId, work);
   try {
     const result = await work;
-    memoryCache.set(CACHE_KEY(orgId), result, CACHE_TTL);
+    memoryCache.set(
+      CACHE_KEY(orgId),
+      result,
+      result.partial ? PARTIAL_CACHE_TTL : CACHE_TTL
+    );
     return result;
   } finally {
     inFlight.delete(orgId);
@@ -208,7 +221,7 @@ async function doAnalysis(orgId: string): Promise<ProfileIntelligence> {
   );
 
   // -- Narrative from Claude ------------------------------------------------
-  const narrative = await runNarrativeAnalysis({
+  const { narrative, partial } = await runNarrativeAnalysis({
     handle: profile.handle ?? null,
     followers,
     bio: profile.bio,
@@ -264,6 +277,7 @@ async function doAnalysis(orgId: string): Promise<ProfileIntelligence> {
     competitorInsights: competitors.length > 0 ? narrative.competitorInsights ?? null : null,
     profileHealthScore,
     scoreBreakdown,
+    partial,
   };
 }
 
@@ -583,16 +597,19 @@ Return STRICT JSON, no prose or fences:
 
 Return competitorInsights = null when no competitor data is provided. Aim the thisWeekPlan at the slots in bestPostingTimes — match the day field to one of those days when possible.`;
 
-async function runNarrativeAnalysis(payload: object): Promise<NarrativePayload> {
+async function runNarrativeAnalysis(
+  payload: object
+): Promise<{ narrative: NarrativePayload; partial: boolean }> {
   try {
-    return await callClaude<NarrativePayload>({
+    const narrative = await callClaude<NarrativePayload>({
       systemPrompt: NARRATIVE_SYSTEM,
       userMessage: `Analyse this creator and return the JSON:\n\n${JSON.stringify(payload, null, 2)}`,
       maxTokens: 2400,
     });
+    return { narrative, partial: false };
   } catch (e) {
     console.warn(`Intelligence narrative call failed: ${(e as Error).message}`);
-    return {};
+    return { narrative: {}, partial: true };
   }
 }
 

@@ -3,12 +3,22 @@ import 'server-only';
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
+// Vercel functions cap at 60s on Hobby / 300s on Pro. We give Claude a hard
+// 10s budget by default so a single slow call can never starve the parent
+// route — callers can opt into longer for genuine multi-pass jobs (the
+// 6-agent pipeline overrides per-call). When the timeout fires, the AbortError
+// surfaces as a ClaudeError(504) so the caller's try/catch returns a partial
+// payload instead of letting the whole route hang.
+const DEFAULT_TIMEOUT_MS = 10_000;
 
 export interface CallClaudeArgs {
   systemPrompt: string;
   userMessage: string;
   maxTokens?: number;
   model?: string;
+  /** Per-call timeout in ms. Defaults to 10s. Pass a larger value for the
+   *  script-generation pipeline where 30s+ writes are expected. */
+  timeoutMs?: number;
 }
 
 export class ClaudeError extends Error {
@@ -26,6 +36,7 @@ export async function callClaude<T>({
   userMessage,
   maxTokens = 1024,
   model = DEFAULT_MODEL,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 }: CallClaudeArgs): Promise<T> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -35,20 +46,33 @@ export async function callClaude<T>({
     );
   }
 
-  const res = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': ANTHROPIC_VERSION,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userMessage }],
-    }),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': ANTHROPIC_VERSION,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    clearTimeout(timer);
+    if ((e as { name?: string }).name === 'AbortError') {
+      throw new ClaudeError(504, `Anthropic timeout after ${timeoutMs}ms`);
+    }
+    throw e;
+  }
+  clearTimeout(timer);
 
   if (!res.ok) {
     const text = await res.text().catch(() => '');

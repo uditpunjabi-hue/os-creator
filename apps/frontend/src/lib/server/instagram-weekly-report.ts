@@ -22,10 +22,17 @@ export interface WeeklyReport {
   bestTimeToPost: string;
   formatBreakdown: Array<{ format: string; count: number; avgInteractions: number; verdict: string }>;
   topHashtags: HashtagStat[];
+  // True when the Claude call timed out or errored and we returned the
+  // deterministic-only payload. Clients should treat this as a soft success,
+  // not a hard failure — the IG-derived data is still real.
+  partial?: boolean;
 }
 
 const CACHE_KEY = (orgId: string) => `ig:weekly-report:${orgId}`;
 const CACHE_TTL = 24 * 60 * 60;
+// Partial cache (Claude timed out) — retry on the next request after 5 min
+// instead of serving stale empty narrative for 24h.
+const PARTIAL_CACHE_TTL = 5 * 60;
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 const inFlight = new Map<string, Promise<WeeklyReport>>();
 
@@ -99,14 +106,17 @@ async function regenerate(orgId: string): Promise<WeeklyReport> {
     const periodStart = new Date(now - SEVEN_DAYS);
     const periodLabel = formatPeriod(periodStart, new Date(now));
 
-    // Even with zero posts in the last 7 days we still return a valid (empty-ish)
-    // shape — the UI shouldn't break.
     let llm: {
       recapHeadline: string;
       whatWorked: string[];
       whatDidnt: string[];
       recommendations: string[];
     };
+    // partial = true means the Claude call failed (timeout / API error) and
+    // we fell back to deterministic-only data. Caller caches with a much
+    // shorter TTL so the next visit re-tries instead of serving the stub
+    // headline for 24h.
+    let partial = false;
     if (last7.length === 0) {
       llm = {
         recapHeadline: 'No posts in the last 7 days — nothing to recap yet.',
@@ -141,11 +151,12 @@ async function regenerate(orgId: string): Promise<WeeklyReport> {
         });
       } catch (e) {
         console.warn(`Weekly report Claude call failed: ${(e as Error).message}`);
+        partial = true;
         llm = {
-          recapHeadline: `Posted ${last7.length} time${last7.length === 1 ? '' : 's'} in the last 7 days.`,
+          recapHeadline: `Posted ${last7.length} time${last7.length === 1 ? '' : 's'} in the last 7 days — full recap coming on next refresh.`,
           whatWorked: [],
           whatDidnt: [],
-          recommendations: ['AI recap unavailable right now — try refreshing in a few minutes.'],
+          recommendations: [],
         };
       }
     }
@@ -162,8 +173,9 @@ async function regenerate(orgId: string): Promise<WeeklyReport> {
       bestTimeToPost,
       formatBreakdown,
       topHashtags,
+      partial,
     };
-    memoryCache.set(CACHE_KEY(orgId), out, CACHE_TTL);
+    memoryCache.set(CACHE_KEY(orgId), out, partial ? PARTIAL_CACHE_TTL : CACHE_TTL);
     return out;
   })();
 

@@ -16,11 +16,18 @@ export interface AiInsightsResponse {
   growthOpportunities: AiInsightCard[];
   audiencePulse: AiInsightCard[];
   contentGaps: AiInsightCard[];
+  // Set when the Claude call timed out and we cached an empty result. Tells
+  // the UI to render a "regenerating" hint instead of an "all clear" empty
+  // state, and tells the cache layer to use a short TTL.
+  partial?: boolean;
 }
 
 const CACHE_KEY = (orgId: string) => `ig:ai-insights:${orgId}`;
 // Hard TTL — drop the entry entirely after 24h.
 const CACHE_TTL = 24 * 60 * 60;
+// Failure cache — 5 min so the next page load re-attempts instead of locking
+// the user out of AI insights for a day after one transient timeout.
+const PARTIAL_CACHE_TTL = 5 * 60;
 // Soft TTL — after 6h, still serve cached BUT kick off a background refresh
 // so the next reader gets fresh data without paying the Claude-call latency.
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
@@ -124,9 +131,10 @@ async function regenerate(orgId: string): Promise<AiInsightsResponse> {
       })),
     };
 
-    let parsed: Omit<AiInsightsResponse, 'connected' | 'generatedAt'>;
+    let parsed: Omit<AiInsightsResponse, 'connected' | 'generatedAt' | 'partial'>;
+    let partial = false;
     try {
-      parsed = await callClaude<Omit<AiInsightsResponse, 'connected' | 'generatedAt'>>({
+      parsed = await callClaude<Omit<AiInsightsResponse, 'connected' | 'generatedAt' | 'partial'>>({
         systemPrompt: SYSTEM_PROMPT,
         userMessage: `Analyze this creator and return the four-category JSON:\n\n${JSON.stringify(userPayload, null, 2)}`,
         maxTokens: 2000,
@@ -134,6 +142,7 @@ async function regenerate(orgId: string): Promise<AiInsightsResponse> {
     } catch (e) {
       console.warn(`AI insights generation failed: ${(e as Error).message}`);
       parsed = { contentDna: [], growthOpportunities: [], audiencePulse: [], contentGaps: [] };
+      partial = true;
     }
 
     const out: AiInsightsResponse = {
@@ -143,8 +152,9 @@ async function regenerate(orgId: string): Promise<AiInsightsResponse> {
       growthOpportunities: parsed.growthOpportunities ?? [],
       audiencePulse: parsed.audiencePulse ?? [],
       contentGaps: parsed.contentGaps ?? [],
+      partial,
     };
-    memoryCache.set(CACHE_KEY(orgId), out, CACHE_TTL);
+    memoryCache.set(CACHE_KEY(orgId), out, partial ? PARTIAL_CACHE_TTL : CACHE_TTL);
     return out;
   })();
 
