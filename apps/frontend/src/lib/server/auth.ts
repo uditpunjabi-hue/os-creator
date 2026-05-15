@@ -109,40 +109,65 @@ interface InstagramSignInArgs {
   emailHint?: string | null;
 }
 
+const igFields = (args: InstagramSignInArgs) => ({
+  instagramAccessToken: args.accessToken,
+  instagramHandle: args.instagramHandle,
+  instagramFollowers: args.followers,
+  instagramMediaCount: args.mediaCount,
+  instagramBio: args.bio,
+  instagramProfilePic: args.profilePic,
+  instagramConnectedAt: new Date(),
+});
+
 /**
  * Find-or-create a user by their Instagram Business account id. The Instagram
  * user id is stable for the lifetime of the IG account, so it's the right
- * primary key. When the user has already signed in another way (e.g. Google
- * first) we'd ideally merge — for now, we treat IG and Google sign-ins as
- * separate accounts unless the same row gets matched by IG user id.
+ * primary key.
+ *
+ * Match precedence:
+ *   1. existing row with the same instagramUserId → just refresh tokens.
+ *   2. caller passed `currentUserId` (already-signed-in session, e.g.
+ *      "Connect Instagram" from Settings) → attach IG to that account.
+ *   3. fresh signup → create User + Organization + UserOrganization.
  */
-export async function signInWithInstagram(args: InstagramSignInArgs): Promise<UpsertResult> {
-  const existing = await prisma.user.findFirst({
+export async function signInWithInstagram(
+  args: InstagramSignInArgs,
+  currentUserId?: string | null
+): Promise<UpsertResult> {
+  // 1) Returning IG user.
+  const byIg = await prisma.user.findFirst({
     where: { instagramUserId: args.instagramUserId },
   });
-  if (existing) {
+  if (byIg) {
     const updated = await prisma.user.update({
-      where: { id: existing.id },
-      data: {
-        instagramAccessToken: args.accessToken,
-        instagramHandle: args.instagramHandle,
-        instagramFollowers: args.followers,
-        instagramMediaCount: args.mediaCount,
-        instagramBio: args.bio,
-        instagramProfilePic: args.profilePic,
-        instagramConnectedAt: new Date(),
-      },
+      where: { id: byIg.id },
+      data: igFields(args),
     });
     return { user: updated, isNewUser: false };
   }
 
-  // Fresh signup. Email is a "best guess" — IG doesn't give us one, so we
-  // synthesize a stable, unique placeholder per IG user id. The user can edit
-  // it from Settings later. Org is named after the handle when we have one.
-  const synthEmail =
-    (args.emailHint?.trim() ||
-      `${args.instagramHandle?.replace(/^@/, '') ?? args.instagramUserId}@instagram.illuminati`).toLowerCase();
+  // 2) Attach to existing session.
+  if (currentUserId) {
+    const live = await prisma.user.findUnique({ where: { id: currentUserId } });
+    if (live) {
+      const updated = await prisma.user.update({
+        where: { id: live.id },
+        data: { ...igFields(args), instagramUserId: args.instagramUserId },
+      });
+      return { user: updated, isNewUser: false };
+    }
+  }
+
+  // 3) Fresh signup. Email is a "best guess" — IG doesn't give us one, so we
+  // synthesize a globally-unique placeholder keyed by the IG user id (the
+  // handle alone isn't safe: two creators with the same handle in different
+  // namespaces, or a returning user whose handle changed, would collide
+  // against the @@unique([email, providerName]) constraint).
   const handle = args.instagramHandle?.replace(/^@/, '') ?? 'creator';
+  const synthEmail = (
+    args.emailHint?.trim() ||
+    `ig-${args.instagramUserId}@instagram.illuminati`
+  ).toLowerCase();
   const created = await prisma.user.create({
     data: {
       email: synthEmail,
@@ -151,13 +176,7 @@ export async function signInWithInstagram(args: InstagramSignInArgs): Promise<Up
       name: handle,
       userMode: 'CREATOR',
       instagramUserId: args.instagramUserId,
-      instagramAccessToken: args.accessToken,
-      instagramHandle: args.instagramHandle,
-      instagramFollowers: args.followers,
-      instagramMediaCount: args.mediaCount,
-      instagramBio: args.bio,
-      instagramProfilePic: args.profilePic,
-      instagramConnectedAt: new Date(),
+      ...igFields(args),
       organizations: {
         create: {
           role: 'SUPERADMIN',

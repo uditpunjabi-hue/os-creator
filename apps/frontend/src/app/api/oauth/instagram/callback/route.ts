@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { signInWithInstagram } from '@gitroom/frontend/lib/server/auth';
+import {
+  readCurrentUserIdSilent,
+  signInWithInstagram,
+} from '@gitroom/frontend/lib/server/auth';
 import { signInUser, frontendUrl, backendBase } from '@gitroom/frontend/lib/server/cookie';
 
 export const runtime = 'nodejs';
@@ -132,15 +135,22 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    const { user, isNewUser } = await signInWithInstagram({
-      instagramUserId: igProfile.id,
-      instagramHandle: igProfile.username ? `@${igProfile.username}` : null,
-      followers: igProfile.followers_count ?? null,
-      mediaCount: igProfile.media_count ?? null,
-      bio: igProfile.biography ?? null,
-      profilePic: igProfile.profile_picture_url ?? null,
-      accessToken: tokenForIgCalls,
-    });
+    // Attach to existing session if the user is already signed in (e.g.
+    // they hit "Connect Instagram" from Settings). For first-time visitors
+    // hitting /auth/login this is null and we fall through to create.
+    const currentUserId = await readCurrentUserIdSilent();
+    const { user, isNewUser } = await signInWithInstagram(
+      {
+        instagramUserId: igProfile.id,
+        instagramHandle: igProfile.username ? `@${igProfile.username}` : null,
+        followers: igProfile.followers_count ?? null,
+        mediaCount: igProfile.media_count ?? null,
+        bio: igProfile.biography ?? null,
+        profilePic: igProfile.profile_picture_url ?? null,
+        accessToken: tokenForIgCalls,
+      },
+      currentUserId
+    );
 
     // Land new users on the onboarding screen (it shows "Welcome @handle…"
     // and runs the intelligence agent in the background); returning users
