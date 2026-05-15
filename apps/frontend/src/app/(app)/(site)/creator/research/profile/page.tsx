@@ -18,6 +18,7 @@ import {
   Gauge,
   CalendarCheck,
   RefreshCw,
+  Info,
 } from 'lucide-react';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
@@ -554,7 +555,7 @@ export default function CreatorProfile() {
             <div className="mb-2 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-purple-700">
-                  <Lightbulb className="h-3 w-3" /> AI analysis · powered by Claude
+                  <Lightbulb className="h-3 w-3" /> AI analysis · by Illuminati AI
                 </div>
                 {ai?.generatedAt && (
                   <div className="text-[10px] text-gray-400">
@@ -1013,12 +1014,35 @@ function HealthScoreCard({
   }
   if (!intel) return null;
   const score = intel.profileHealthScore;
-  const labels: Array<[keyof ScoreBreakdown, string]> = [
-    ['contentQuality', 'Content quality'],
-    ['postingConsistency', 'Posting consistency'],
-    ['engagementRate', 'Engagement rate'],
-    ['hashtagStrategy', 'Hashtag strategy'],
-    ['audienceGrowth', 'Audience growth'],
+  // Each row gets a tap-target tooltip explaining what the score actually
+  // measures. Copy is intentionally specific — "good engagement" vs "you're
+  // posting < 4× a week" tells the creator what to fix.
+  const labels: Array<[keyof ScoreBreakdown, string, string]> = [
+    [
+      'contentQuality',
+      'Content quality',
+      'How well your last 30 days of posts perform relative to your followers. 5%+ avg engagement = excellent.',
+    ],
+    [
+      'postingConsistency',
+      'Posting consistency',
+      'Posts per week over the last 30 days. 5+ weekly = 90, 4 = 80, 3 = 70, 2 = 55, 1 = 40, less = 25.',
+    ],
+    [
+      'engagementRate',
+      'Engagement rate',
+      '(likes + comments) / followers averaged across your last 12 posts. 7%+ = 95, 5%+ = 88, 3%+ = 75.',
+    ],
+    [
+      'hashtagStrategy',
+      'Hashtag strategy',
+      'Tag diversity minus overuse. Hitting 12 distinct tags adds 50; each overused (frequent + below-median reach) tag drops the score 5.',
+    ],
+    [
+      'audienceGrowth',
+      'Audience growth',
+      'Trend of the IG follower count series. Accelerating = 92, steady = 75, declining = 40, no data = 60.',
+    ],
   ];
   const updatedAgo = intel.generatedAt ? formatUpdated(intel.generatedAt) : null;
   return (
@@ -1041,28 +1065,10 @@ function HealthScoreCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-1.5">
-            {labels.map(([key, label]) => {
+            {labels.map(([key, label, tooltip]) => {
               const value = intel.scoreBreakdown[key];
               return (
-                <div key={key} className="flex items-center gap-3">
-                  <div className="w-32 shrink-0 text-[11px] text-gray-600">{label}</div>
-                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
-                    <div
-                      className={cn(
-                        'h-full rounded-full transition-all',
-                        value >= 80
-                          ? 'bg-emerald-500'
-                          : value >= 60
-                          ? 'bg-amber-500'
-                          : 'bg-rose-500'
-                      )}
-                      style={{ width: `${Math.max(value, 4)}%` }}
-                    />
-                  </div>
-                  <div className="w-8 shrink-0 text-right text-[11px] font-semibold tabular-nums text-gray-700">
-                    {value}
-                  </div>
-                </div>
+                <ScoreBar key={key} label={label} value={value} tooltip={tooltip} />
               );
             })}
           </div>
@@ -1095,6 +1101,43 @@ function HealthScoreCard({
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreBar({ label, value, tooltip }: { label: string; value: number; tooltip: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex w-32 shrink-0 items-center gap-1 text-[11px] text-gray-600">
+        <span className="truncate">{label}</span>
+        <button
+          type="button"
+          aria-label={`How ${label} is calculated`}
+          onClick={() => setOpen((v) => !v)}
+          onBlur={() => setOpen(false)}
+          className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+        >
+          <Info className="h-3 w-3" />
+          {open && (
+            <span className="absolute bottom-full left-1/2 z-20 mb-1 w-56 -translate-x-1/2 rounded-lg bg-gray-900 px-2.5 py-1.5 text-left text-[11px] font-normal leading-snug text-white shadow-lg">
+              {tooltip}
+            </span>
+          )}
+        </button>
+      </div>
+      <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+        <div
+          className={cn(
+            'h-full rounded-full transition-all',
+            value >= 80 ? 'bg-emerald-500' : value >= 60 ? 'bg-amber-500' : 'bg-rose-500'
+          )}
+          style={{ width: `${Math.max(value, 4)}%` }}
+        />
+      </div>
+      <div className="w-8 shrink-0 text-right text-[11px] font-semibold tabular-nums text-gray-700">
+        {value}
       </div>
     </div>
   );

@@ -120,16 +120,16 @@ export default function CompetitorsPage() {
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
         <div className="flex items-start justify-between gap-2 px-4 py-3 lg:px-8 lg:py-5">
           <div className="min-w-0">
-            <div className="text-lg font-semibold text-gray-900">Competitors</div>
+            <div className="text-lg font-semibold text-gray-900">Inspiration</div>
             <div className="truncate text-xs text-gray-500">
-              {list.length} tracked · synced via Instagram Business Discovery
+              {list.length} creators tracked · synced via Instagram Business Discovery
             </div>
           </div>
           {list.length > 0 && (
             <a
               href="/creator/content/scripts"
               className="hidden shrink-0 items-center gap-1.5 rounded-full bg-[#F59E0B] px-3 py-1.5 text-xs font-semibold text-black hover:brightness-110 sm:inline-flex"
-              title="Use these competitor signals when generating your next script"
+              title="Use these inspiration signals when generating your next script"
             >
               Use for scripting →
             </a>
@@ -164,7 +164,7 @@ export default function CompetitorsPage() {
               type="search"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search tracked competitors"
+              placeholder="Search tracked creators"
               className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
             />
           </div>
@@ -277,7 +277,7 @@ export default function CompetitorsPage() {
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-16 text-center">
             <div className="text-sm font-medium text-gray-900">
-              {list.length === 0 ? 'No competitors tracked yet' : 'No matches'}
+              {list.length === 0 ? 'No creators tracked for inspiration yet' : 'No matches'}
             </div>
             <div className="max-w-xs text-xs text-gray-500">
               {list.length === 0

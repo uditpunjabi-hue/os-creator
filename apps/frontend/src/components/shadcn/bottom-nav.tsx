@@ -26,18 +26,18 @@ interface Tab {
 }
 
 const contentTabs: Tab[] = [
-  { label: 'Research', href: '/creator/research/profile', icon: Search, match: (p) => p.startsWith('/creator/research') },
+  { label: 'Profile', href: '/creator/research/profile', icon: Search, match: (p) => p.startsWith('/creator/research') },
   { label: 'Script', href: '/creator/content/scripts', icon: FileText, match: (p) => p.startsWith('/creator/content/scripts') },
   { label: 'Create', href: '/creator/content/new', icon: Sparkles, match: (p) => p.startsWith('/creator/content/new') },
-  { label: 'Schedule', href: '/creator/schedule', icon: CalendarIcon, match: (p) => p.startsWith('/creator/schedule') },
+  { label: 'Calendar', href: '/creator/schedule', icon: CalendarIcon, match: (p) => p.startsWith('/creator/schedule') },
   { label: 'Analytics', href: '/creator/analytics', icon: BarChart3, match: (p) => p.startsWith('/creator/analytics') },
 ];
 
 const managerTabs: Tab[] = [
   { label: 'Inbox', href: '/manager/inbox', icon: Mail, match: (p) => p.startsWith('/manager/inbox') },
   { label: 'Deals', href: '/manager/deals', icon: Briefcase, match: (p) => p.startsWith('/manager/deals') },
-  { label: 'Payments', href: '/manager/payments', icon: Wallet, match: (p) => p.startsWith('/manager/payments') || p.startsWith('/manager/commercials') },
-  { label: 'Schedule', href: '/manager/schedule', icon: CalendarIcon, match: (p) => p.startsWith('/manager/schedule') },
+  { label: 'Projects', href: '/manager/projects', icon: Wallet, match: (p) => p.startsWith('/manager/projects') || p.startsWith('/manager/payments') || p.startsWith('/manager/commercials') || p.startsWith('/manager/contracts') },
+  { label: 'Calendar', href: '/manager/schedule', icon: CalendarIcon, match: (p) => p.startsWith('/manager/schedule') },
   { label: 'Settings', href: '/manager/settings', icon: Settings, match: (p) => p.startsWith('/manager/settings') },
 ];
 

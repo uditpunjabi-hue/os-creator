@@ -566,7 +566,7 @@ function ReminderDraftSheet({
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {loading && (
             <div className="flex items-center justify-center gap-2 py-12 text-sm text-gray-500">
-              <Loader2 className="h-4 w-4 animate-spin" /> Drafting with Claude…
+              <Loader2 className="h-4 w-4 animate-spin" /> Drafting with Illuminati AI…
             </div>
           )}
           {!loading && (

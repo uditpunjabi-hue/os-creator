@@ -43,6 +43,7 @@ import { FirstBillingComponent } from '@gitroom/frontend/components/billing/firs
 import { ProductProvider } from '@gitroom/frontend/components/layout/product.context';
 import { ProductSwitcher } from '@gitroom/frontend/components/layout/product.switcher';
 import { ConnectGoogleBanner } from '@gitroom/frontend/components/layout/connect-google-banner';
+import { HeaderAvatar } from '@gitroom/frontend/components/layout/header-avatar';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500', '700'],
@@ -188,8 +189,11 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                           <ChromeExtensionComponent />
                           <div className="h-5 w-px bg-gray-200" />
                           <AttachToFeedbackIcon />
+                          <HeaderAvatar />
                         </div>
-                        <div className="flex items-center gap-2 text-gray-500 lg:hidden" />
+                        <div className="flex items-center gap-2 text-gray-500 lg:hidden">
+                          <HeaderAvatar />
+                        </div>
                       </div>
                       <div
                         className="flex-1 overflow-y-auto bg-gray-50 pb-[88px] lg:pb-0"

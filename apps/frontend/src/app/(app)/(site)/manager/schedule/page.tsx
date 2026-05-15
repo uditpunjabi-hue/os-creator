@@ -183,7 +183,7 @@ export default function ManagerSchedulePage() {
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
         <div className="flex items-start justify-between gap-2 px-4 py-3 lg:px-8 lg:py-5">
           <div className="min-w-0">
-            <div className="text-lg font-semibold text-gray-900">Schedule</div>
+            <div className="text-lg font-semibold text-gray-900">Calendar</div>
             <div className="truncate text-xs text-gray-500">
               {isLoading
                 ? 'Loading…'

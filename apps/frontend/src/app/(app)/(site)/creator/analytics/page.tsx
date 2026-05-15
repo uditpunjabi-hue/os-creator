@@ -232,14 +232,14 @@ export default function CreatorAnalyticsPage() {
     return { likes, comments, interactions: likes + comments, posts: last30.length };
   }, [last30]);
 
-  const avgEngagement = useMemo(() => {
-    if (!followers || last30.length === 0) return null;
-    const sum = last30.reduce(
-      (s, m) => s + (m.likeCount + m.commentsCount) / followers,
-      0
-    );
-    return (sum / last30.length) * 100;
-  }, [last30, followers]);
+  // Canonical engagement = the same number the Profile page tile uses.
+  // Formula on the server (instagram.ts):
+  //   (sum of likes + comments over the last 12 posts) / (followers × 12) × 100
+  // Recomputing here over `last30` produced a different number when the
+  // creator hadn't posted in the last 30 days — Profile said 1.85%, Analytics
+  // said 74%, both right by their own definition but inconsistent. Use the
+  // server number directly everywhere.
+  const avgEngagement = profile?.engagementRate ?? null;
 
   const bestPost = useMemo(() => {
     if (media.length === 0) return null;
@@ -634,7 +634,7 @@ function WeeklyReportPanel({
       <div className="mb-2 flex items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-purple-700">
-            <Sparkles className="h-3 w-3" /> Your week in review · powered by Claude
+            <Sparkles className="h-3 w-3" /> Your week in review · by Illuminati AI
           </div>
           {report?.periodLabel && (
             <div className="text-[11px] text-gray-500">{report.periodLabel} · {report.postsLast7Days} post{report.postsLast7Days === 1 ? '' : 's'}</div>
@@ -775,17 +775,21 @@ function ReportBlock({
   accent: 'emerald' | 'rose' | 'purple';
   items: string[];
 }) {
+  // Accent shows only on the left border + icon — body copy stays the same
+  // dark gray everywhere so nothing reads as washed-out against the panel's
+  // tinted background.
   const tones = {
-    emerald: 'border-emerald-200 bg-emerald-50/60 text-emerald-700',
-    rose: 'border-rose-200 bg-rose-50/60 text-rose-700',
-    purple: 'border-purple-200 bg-purple-50/60 text-purple-700',
+    emerald: { border: 'border-emerald-300', tint: 'bg-emerald-50/60', icon: 'text-emerald-700' },
+    rose: { border: 'border-rose-300', tint: 'bg-rose-50/60', icon: 'text-rose-700' },
+    purple: { border: 'border-purple-300', tint: 'bg-purple-50/60', icon: 'text-purple-700' },
   } as const;
+  const t = tones[accent];
   return (
-    <div className={cn('rounded-xl border p-3', tones[accent])}>
-      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
-        <Icon className="h-3 w-3" /> {label}
+    <div className={cn('rounded-xl border-l-4 border-y border-r p-3', t.border, t.tint)}>
+      <div className={cn('flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-900')}>
+        <Icon className={cn('h-3 w-3', t.icon)} /> {label}
       </div>
-      <ul className="mt-1.5 ml-3 list-disc text-xs leading-relaxed text-gray-800">
+      <ul className="mt-1.5 ml-3 list-disc text-xs leading-relaxed text-gray-900">
         {items.map((s, i) => (
           <li key={i}>{s}</li>
         ))}
@@ -1050,9 +1054,20 @@ function PostRow({
 }) {
   const interactions = post.likeCount + post.commentsCount;
   const pct = engagementOf(post, followers);
-  const diff = interactions - baseline;
-  const diffPct = baseline > 0 ? Math.round((diff / baseline) * 100) : 0;
-  const beat = diff >= 0;
+  // "vs predicted" delta — clamped to ±150% so a single 10× outlier or a near-
+  // zero baseline doesn't produce -98% / +12000% chips that read as broken.
+  // The chip is a directional signal, not a precise stat; the precise number
+  // is the engagement % already shown above.
+  const rawDiffPct = baseline > 0
+    ? Math.round(((interactions - baseline) / baseline) * 100)
+    : 0;
+  const diffPct = Math.max(-150, Math.min(150, rawDiffPct));
+  const beat = rawDiffPct >= 0;
+  // When clamped, prefix with "≥" / "≤" so it's obvious the real number is
+  // beyond the band rather than exactly at the cap.
+  const chipLabel = `${
+    diffPct !== rawDiffPct ? (beat ? '>' : '<') : beat ? '+' : ''
+  }${diffPct}% vs avg`;
   const remixPrompt = `Create a new post that builds on the angle from my piece titled "${(post.caption ?? '').slice(0, 80)}". Keep what worked, push it harder.`;
 
   return (
@@ -1100,8 +1115,7 @@ function PostRow({
           )}
         >
           {beat ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-          {beat ? '+' : ''}
-          {diffPct}% vs predicted
+          {chipLabel}
         </span>
         <Link
           href={`/creator/content/scripts?prompt=${encodeURIComponent(remixPrompt)}`}

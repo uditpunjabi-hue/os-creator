@@ -30,7 +30,7 @@ const contentNav: NavSection[] = [
     title: 'Research',
     items: [
       { label: 'My Profile', href: '/creator/research/profile', icon: Search },
-      { label: 'Competitors', href: '/creator/research/competitors', icon: Users },
+      { label: 'Inspiration', href: '/creator/research/competitors', icon: Users },
     ],
   },
   {
@@ -43,7 +43,7 @@ const contentNav: NavSection[] = [
   {
     title: 'Publish',
     items: [
-      { label: 'Schedule', href: '/creator/schedule', icon: CalendarIcon },
+      { label: 'Content Calendar', href: '/creator/schedule', icon: CalendarIcon },
       { label: 'Analytics', href: '/creator/analytics', icon: BarChart3 },
     ],
   },
@@ -60,9 +60,8 @@ const managerNav: NavSection[] = [
   {
     title: 'Plan',
     items: [
-      { label: 'Payments', href: '/manager/payments', icon: Wallet },
-      { label: 'Schedule', href: '/manager/schedule', icon: CalendarIcon },
-      { label: 'Contracts', href: '/manager/contracts', icon: FileText },
+      { label: 'Projects', href: '/manager/projects', icon: Wallet },
+      { label: 'Calendar', href: '/manager/schedule', icon: CalendarIcon },
     ],
   },
   {
