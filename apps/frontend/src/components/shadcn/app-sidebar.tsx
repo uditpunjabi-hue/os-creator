@@ -59,6 +59,7 @@ const managerNav: NavSection[] = [
     items: [
       { label: 'Inbox', href: '/manager/inbox', icon: Mail },
       { label: 'Deals', href: '/manager/deals', icon: Briefcase },
+      { label: 'Brands', href: '/manager/brands', icon: Users },
     ],
   },
   {

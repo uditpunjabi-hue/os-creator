@@ -303,6 +303,47 @@ export const useScheduledPosts = () => {
 // Mutations
 // ===========================================================================
 
+export type BrandStatus = 'NEW' | 'ACTIVE' | 'DORMANT' | 'CHURNED';
+
+export interface BrandSummary {
+  id: string;
+  name: string;
+  industry: string | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  status: BrandStatus;
+  notes: string | null;
+  totalEarned: number;
+  currency: string;
+  dealsCount: number;
+  paymentsCount: number;
+  lastInteraction: string | null;
+  createdAt: string;
+}
+
+export interface BrandDetail extends BrandSummary {
+  deals: Array<{ id: string; offer: number; stage: string; deadline: string | null; createdAt: string }>;
+  payments: Array<{
+    id: string;
+    amount: number;
+    currency: string;
+    paidAt: string | null;
+    method: string | null;
+    reference: string | null;
+  }>;
+  threads: Array<{ id: string; subject: string; preview: string; updatedAt: string; status: string }>;
+}
+
+export const useBrands = () => {
+  const load = useJsonLoader();
+  return useSWR<{ brands: BrandSummary[] }>('/manager/brands', load);
+};
+
+export const useBrand = (id: string | null) => {
+  const load = useJsonLoader();
+  return useSWR<BrandDetail>(id ? `/manager/brands/${id}` : null, load);
+};
+
 export const useManagerMutations = () => {
   const fetch = useFetch();
 
