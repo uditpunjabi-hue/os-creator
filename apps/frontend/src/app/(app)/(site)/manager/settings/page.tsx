@@ -1,10 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2, IndianRupee, LogOut, RefreshCw, UserPlus } from 'lucide-react';
+import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2, IndianRupee, LogOut, RefreshCw, UserPlus, Palette, Sparkles, Type } from 'lucide-react';
+import { usePrefs, type ThemeKey, type FontSizeKey } from '@gitroom/frontend/components/layout/prefs.context';
 import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { Input } from '@gitroom/frontend/components/shadcn/ui/input';
+import { cn } from '@gitroom/frontend/lib/utils';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
 import {
@@ -13,15 +15,16 @@ import {
   useManagerMutations,
 } from '@gitroom/frontend/hooks/manager';
 
-type Section = 'profile' | 'rates' | 'team' | 'notifications' | 'integrations';
+type Section = 'profile' | 'appearance' | 'rates' | 'team' | 'notifications' | 'integrations';
 
 const fmtFollowers = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : `${n}`;
 
 const sections: { key: Section; label: string; description: string; icon: typeof User2 }[] = [
   { key: 'profile', label: 'Profile', description: 'Your name, email and workspace', icon: User2 },
+  { key: 'appearance', label: 'Appearance', description: 'Theme, font size, AI nickname', icon: Palette },
   { key: 'rates', label: 'Rate card', description: 'Per-deliverable pricing the deal advisor uses', icon: IndianRupee },
-  { key: 'team', label: 'Team', description: 'Invite teammates and assign roles', icon: Users },
+  { key: 'team', label: 'Team', description: 'Invite a manager to help', icon: Users },
   { key: 'notifications', label: 'Notifications', description: 'How and when we tell you things', icon: Bell },
   { key: 'integrations', label: 'API connections', description: 'Connect Gmail, Stripe and more', icon: Plug },
 ];
@@ -100,6 +103,7 @@ export default function SettingsPage() {
 
           <div className="flex flex-col gap-4">
             {active === 'profile' && <ProfilePanel />}
+            {active === 'appearance' && <AppearancePanel />}
             {active === 'rates' && <RateCardPanel />}
 
             {active === 'team' && <TeamPanel />}
@@ -332,6 +336,95 @@ function TeamPanel() {
         <Button className="h-11" disabled>
           Coming soon
         </Button>
+      </div>
+    </section>
+  );
+}
+
+function AppearancePanel() {
+  const { theme, fontSize, aiAgentName, setTheme, setFontSize, setAiAgentName } = usePrefs();
+  const themes: Array<{ id: ThemeKey; label: string; swatch: string }> = [
+    { id: 'dark', label: 'Dark', swatch: 'linear-gradient(135deg,#0F0F0F,#1F1F1F)' },
+    { id: 'midnight', label: 'Midnight Blue', swatch: 'linear-gradient(135deg,#0B1736,#1E40AF)' },
+    { id: 'purple', label: 'Deep Purple', swatch: 'linear-gradient(135deg,#1A0B2E,#7C3AED)' },
+  ];
+  const fontSizes: Array<{ id: FontSizeKey; label: string }> = [
+    { id: 'sm', label: 'Small' },
+    { id: 'md', label: 'Medium' },
+    { id: 'lg', label: 'Large' },
+  ];
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-gray-900">Appearance</h2>
+      <p className="mt-1 text-xs text-gray-500">
+        Personalise the look of your studio. Changes apply instantly.
+      </p>
+
+      <div className="mt-5 flex flex-col gap-5">
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-700">
+            <Palette className="h-3.5 w-3.5" /> Theme
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {themes.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTheme(t.id)}
+                className={cn(
+                  'flex flex-col items-center gap-2 rounded-2xl border-2 p-3 transition-colors',
+                  theme === t.id
+                    ? 'border-purple-600 bg-purple-50/40'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                )}
+              >
+                <span
+                  className="h-12 w-full rounded-lg ring-1 ring-gray-200"
+                  style={{ background: t.swatch }}
+                />
+                <span className="text-[11px] font-medium text-gray-800">{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-700">
+            <Type className="h-3.5 w-3.5" /> Font size
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {fontSizes.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFontSize(f.id)}
+                className={cn(
+                  'h-10 rounded-full border px-4 text-sm font-semibold transition-colors',
+                  fontSize === f.id
+                    ? 'border-purple-600 bg-purple-600 text-white'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-700">
+            <Sparkles className="h-3.5 w-3.5" /> AI agent name
+          </div>
+          <Input
+            value={aiAgentName}
+            onChange={(e) => setAiAgentName(e.target.value)}
+            placeholder="Illuminati AI"
+            className="max-w-[320px]"
+          />
+          <div className="mt-1 text-[10px] text-gray-400">
+            What your AI manager calls itself in headers and replies. Defaults to Illuminati AI.
+          </div>
+        </div>
       </div>
     </section>
   );

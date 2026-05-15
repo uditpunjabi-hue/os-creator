@@ -34,6 +34,7 @@ import {
   useWeeklyReport,
   useIntelligence,
 } from '@gitroom/frontend/hooks/creator-data';
+import { usePrefs } from '@gitroom/frontend/components/layout/prefs.context';
 
 // ---------------------------------------------------------------------------
 // Types — mirror the API payloads so the page can be picked apart cheaply.
@@ -192,6 +193,7 @@ const mediaTypeLabel = (t: string) =>
 export default function CreatorAnalyticsPage() {
   const fetch = useFetch();
   const { backendUrl } = useVariables();
+  const { aiAgentName: aiName } = usePrefs();
   const [sort, setSort] = useState<SortKey>('recent');
 
   const { data: profile, isLoading: profileLoading } = useCreatorProfile();
@@ -346,6 +348,7 @@ export default function CreatorAnalyticsPage() {
               loading={reportLoading && !report}
               onRefresh={refreshReport}
               refreshing={reportLoading && !!report}
+              aiName={aiName}
             />
 
             {/* Format bar chart — engagement % per format, sorted */}
@@ -622,11 +625,13 @@ function WeeklyReportPanel({
   loading,
   onRefresh,
   refreshing,
+  aiName,
 }: {
   report: WeeklyReport | null;
   loading: boolean;
   onRefresh: () => void;
   refreshing: boolean;
+  aiName: string;
 }) {
   const partial = report?.partial === true;
   return (
@@ -634,7 +639,7 @@ function WeeklyReportPanel({
       <div className="mb-2 flex items-center justify-between gap-2">
         <div>
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-purple-700">
-            <Sparkles className="h-3 w-3" /> Your week in review · by Illuminati AI
+            <Sparkles className="h-3 w-3" /> Your week in review · by {aiName}
           </div>
           {report?.periodLabel && (
             <div className="text-[11px] text-gray-500">{report.periodLabel} · {report.postsLast7Days} post{report.postsLast7Days === 1 ? '' : 's'}</div>

@@ -33,6 +33,7 @@ import {
   useAiInsights,
   useIntelligence,
 } from '@gitroom/frontend/hooks/creator-data';
+import { usePrefs } from '@gitroom/frontend/components/layout/prefs.context';
 
 interface IgMedia {
   id: string;
@@ -163,6 +164,7 @@ const formatBestTime = (t: BestTime) => {
 export default function CreatorProfile() {
   const fetch = useFetch();
   const { backendUrl } = useVariables();
+  const { aiAgentName: aiName } = usePrefs();
 
   // SWR-backed fetches. Once the in-memory cache has data, subsequent renders
   // (or revisits within `dedupingInterval`) hand back the cached payload
@@ -358,13 +360,23 @@ export default function CreatorProfile() {
               </div>
             )}
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <Instagram className="h-3.5 w-3.5 text-purple-600" />
-                <div className="truncate text-sm font-semibold text-gray-900">
-                  {profile.handle ?? 'Connected'}
-                </div>
+              {/* Handle is the headline — this is the creator's identity card,
+                  not just a connection chip. Bumped to 18-20px so it reads
+                  as the actual name of the profile. */}
+              <div className="truncate text-lg font-bold leading-tight text-gray-900 lg:text-xl">
+                {profile.handle ?? 'Connected'}
               </div>
-              <div className="mt-0.5 text-[28px] font-bold leading-none text-gray-900">
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-medium text-gray-500">
+                <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-purple-700">
+                  <Instagram className="h-3 w-3" /> Instagram
+                </span>
+                {/* Future: when YouTube / TikTok land, render the same chip
+                    pattern next to this one. Single source of truth: the
+                    connections payload on /manager/settings/profile. */}
+                <span className="text-gray-300">·</span>
+                <span>Live from Instagram</span>
+              </div>
+              <div className="mt-2 text-[24px] font-bold leading-none text-gray-900 lg:text-[28px]">
                 {fmt(profile.followers)}
                 <span className="ml-1.5 text-xs font-medium text-gray-500">followers</span>
               </div>
@@ -555,7 +567,7 @@ export default function CreatorProfile() {
             <div className="mb-2 flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-purple-700">
-                  <Lightbulb className="h-3 w-3" /> AI analysis · by Illuminati AI
+                  <Lightbulb className="h-3 w-3" /> AI analysis · by {aiName}
                 </div>
                 {ai?.generatedAt && (
                   <div className="text-[10px] text-gray-400">
@@ -1201,34 +1213,119 @@ function ScoreVerdict({ score }: { score: number }) {
 // Week plan
 // ---------------------------------------------------------------------------
 
+type ColKey = 'todo' | 'doing' | 'done';
+const COL_KEYS: ColKey[] = ['todo', 'doing', 'done'];
+const COL_LABEL: Record<ColKey, string> = { todo: 'To do', doing: 'In progress', done: 'Done' };
+const PLAN_STATE_KEY = 'illuminati.weekplan.v1';
+
+// Each task gets a stable id (day + slug of action) so the column state
+// in localStorage survives the AI regenerating the plan with the same
+// recommendations. New tasks default to "todo"; missing ones drop out.
+function planTaskId(day: string, action: string): string {
+  return `${day.toLowerCase()}|${action.toLowerCase().replace(/\s+/g, '-').slice(0, 64)}`;
+}
+
 function WeekPlanSection({ plan }: { plan: PlanDay[] }) {
+  const [columns, setColumns] = useState<Record<string, ColKey>>({});
+
+  // Hydrate the saved column map; tasks that no longer appear in the plan
+  // are dropped silently so the storage doesn't grow forever.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(PLAN_STATE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as Record<string, ColKey>) : {};
+      const valid: Record<string, ColKey> = {};
+      for (const p of plan) {
+        const id = planTaskId(p.day, p.action);
+        const v = parsed[id];
+        if (v === 'todo' || v === 'doing' || v === 'done') valid[id] = v;
+      }
+      setColumns(valid);
+    } catch {
+      // Ignore — start fresh.
+    }
+  }, [plan]);
+
+  const move = (id: string, next: ColKey) => {
+    setColumns((prev) => {
+      const updated = { ...prev, [id]: next };
+      try {
+        localStorage.setItem(PLAN_STATE_KEY, JSON.stringify(updated));
+      } catch {
+        // ignore storage failure
+      }
+      return updated;
+    });
+  };
+
+  const grouped: Record<ColKey, PlanDay[]> = { todo: [], doing: [], done: [] };
+  for (const p of plan) {
+    const id = planTaskId(p.day, p.action);
+    grouped[columns[id] ?? 'todo'].push(p);
+  }
+
   return (
     <div className="mt-5">
       <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-purple-700">
         <CalendarCheck className="h-3.5 w-3.5" /> This week’s plan
       </div>
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {plan.map((p, i) => {
-          const promptText = `${p.action}. Reason: ${p.reason}`;
-          return (
-            <div
-              key={i}
-              className="flex flex-col gap-2 rounded-2xl border border-purple-100 bg-white p-3"
-            >
-              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-purple-700">
-                <Activity className="h-3 w-3" /> {p.day}
-              </div>
-              <div className="text-sm font-semibold text-gray-900">{p.action}</div>
-              <div className="text-[11px] leading-relaxed text-gray-600">{p.reason}</div>
-              <Link
-                href={`/creator/content/scripts?prompt=${encodeURIComponent(promptText)}`}
-                className="mt-1 inline-flex items-center gap-1 self-start rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700 hover:bg-purple-100"
-              >
-                Create content →
-              </Link>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {COL_KEYS.map((col) => (
+          <div
+            key={col}
+            className="flex min-h-[140px] flex-col gap-2 rounded-2xl border border-gray-200 bg-gray-50/40 p-2"
+          >
+            <div className="flex items-center justify-between px-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+              <span>{COL_LABEL[col]}</span>
+              <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-gray-600 ring-1 ring-gray-200">
+                {grouped[col].length}
+              </span>
             </div>
-          );
-        })}
+            {grouped[col].length === 0 && (
+              <div className="rounded-xl border border-dashed border-gray-200 p-3 text-center text-[10px] text-gray-400">
+                {col === 'done' ? 'Move tasks here when shipped' : 'Drop tasks here'}
+              </div>
+            )}
+            {grouped[col].map((p) => {
+              const id = planTaskId(p.day, p.action);
+              const promptText = `${p.action}. Reason: ${p.reason}`;
+              return (
+                <div
+                  key={id}
+                  className="flex flex-col gap-2 rounded-xl border border-purple-100 bg-white p-3 shadow-sm"
+                >
+                  <div className="flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-purple-700">
+                    <span className="inline-flex items-center gap-1">
+                      <Activity className="h-3 w-3" /> {p.day}
+                    </span>
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">{p.action}</div>
+                  <div className="text-[11px] leading-relaxed text-gray-600">{p.reason}</div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    {COL_KEYS.filter((k) => k !== col).map((next) => (
+                      <button
+                        key={next}
+                        type="button"
+                        onClick={() => move(id, next)}
+                        className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-700 hover:bg-purple-100 hover:text-purple-700"
+                        title={`Move to ${COL_LABEL[next]}`}
+                      >
+                        → {COL_LABEL[next]}
+                      </button>
+                    ))}
+                    <Link
+                      href={`/creator/content/scripts?prompt=${encodeURIComponent(promptText)}`}
+                      className="ml-auto inline-flex items-center gap-1 rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-700 hover:bg-purple-100"
+                    >
+                      Create →
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );

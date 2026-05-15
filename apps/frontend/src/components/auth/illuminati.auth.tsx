@@ -59,15 +59,21 @@ export function IlluminatiAuth() {
   );
 
   return (
-    <div className="flex min-h-screen w-full flex-col items-center justify-center bg-[#0F0F0F] px-4 py-12">
+    <div
+      className="flex min-h-screen w-full flex-col items-center justify-center px-4 py-12"
+      style={{
+        background:
+          'linear-gradient(180deg, var(--illum-bg-start, #0F0F0F) 0%, var(--illum-bg-end, #1F1F1F) 100%)',
+      }}
+    >
       <div className="flex w-full max-w-[420px] flex-col items-center">
-        {/* Logo — centred, large. The gold-pyramid PNG is dark-bg friendly
-            on its own; the soft amber glow underneath reads as "auth screen,
-            not a chrome chip." */}
         <div className="relative mb-6">
           <div
             className="absolute inset-0 -z-10 rounded-full blur-2xl"
-            style={{ background: 'radial-gradient(circle, rgba(245,158,11,0.30), transparent 60%)' }}
+            style={{
+              background:
+                'radial-gradient(circle, var(--illum-accent-glow, rgba(245,158,11,0.30)), transparent 60%)',
+            }}
             aria-hidden="true"
           />
           <Logo size={88} />

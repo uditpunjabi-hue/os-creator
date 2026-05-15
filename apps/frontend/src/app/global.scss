@@ -7,6 +7,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Personalization — Settings writes data-theme + data-font-size onto <html>.
+   Theme vars feed gradients on the dark auth / onboarding surfaces; the
+   font-size attr scales root rem so the rest of the UI follows. */
+:root {
+  --illum-bg-start: #0F0F0F;
+  --illum-bg-end: #1F1F1F;
+  --illum-accent: #7C3AED;
+  --illum-accent-glow: rgba(124, 58, 237, 0.30);
+}
+html[data-theme="midnight"] {
+  --illum-bg-start: #0B1736;
+  --illum-bg-end: #061029;
+  --illum-accent: #3B82F6;
+  --illum-accent-glow: rgba(59, 130, 246, 0.30);
+}
+html[data-theme="purple"] {
+  --illum-bg-start: #1A0B2E;
+  --illum-bg-end: #100620;
+  --illum-accent: #A855F7;
+  --illum-accent-glow: rgba(168, 85, 247, 0.35);
+}
+html[data-font-size="sm"] { font-size: 14px; }
+html[data-font-size="md"] { font-size: 16px; }
+html[data-font-size="lg"] { font-size: 18px; }
+
 
 @keyframes spin {
   to { transform: rotate(360deg); }
