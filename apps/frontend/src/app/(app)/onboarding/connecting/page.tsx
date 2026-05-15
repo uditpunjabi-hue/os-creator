@@ -8,14 +8,17 @@ import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 
 type Provider = 'instagram' | 'google';
 
-const copyByProvider: Record<Provider, { title: string; steps: string[]; icon: typeof Instagram; accent: string }> = {
+const copyByProvider: Record<
+  Provider,
+  { title: string; steps: string[]; icon: typeof Instagram; accent: string }
+> = {
   instagram: {
-    title: 'Fetching your profile',
+    title: 'Setting up your studio',
     steps: [
       'Authenticating with Instagram',
       'Pulling profile, followers, and bio',
       'Indexing your last 50 posts',
-      'Calculating engagement and reach',
+      'Running your AI manager',
     ],
     icon: Instagram,
     accent: '#E1306C',
@@ -33,42 +36,41 @@ const copyByProvider: Record<Provider, { title: string; steps: string[]; icon: t
   },
 };
 
-const PER_STEP_MS = 600;
+const PER_STEP_MS = 700;
+
+interface SelfPayload {
+  name?: string | null;
+  instagramHandle?: string | null;
+  googleEmail?: string | null;
+}
 
 export default function OnboardingConnectingPage() {
   const router = useRouter();
   const params = useSearchParams();
   const fetch = useFetch();
   const provider = (params.get('provider') as Provider) || 'instagram';
-  const warning = params.get('warning'); // e.g. 'no_ig_business'
+  const isNewUser = params.get('new') === '1';
+  const warning = params.get('warning');
   const [step, setStep] = useState(0);
-  const [connStatus, setConnStatus] = useState<{
-    instagram: boolean;
-    google: boolean;
-  } | null>(null);
+  const [self, setSelf] = useState<SelfPayload | null>(null);
 
   const config = copyByProvider[provider] ?? copyByProvider.instagram;
   const Icon = config.icon;
   const totalSteps = config.steps.length;
 
-  // Pull live connection status — drives the "where to go next" decision.
+  // Pull the freshly-signed-in user so we can greet them by handle. /user/self
+  // requires the auth cookie that the OAuth callback just set, so this
+  // doubles as a "did the JWT actually land?" probe.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/connections');
-        if (!res.ok) {
-          if (!cancelled) setConnStatus({ instagram: false, google: false });
-          return;
+        const res = await fetch('/user/self');
+        if (!cancelled && res.ok) {
+          setSelf((await res.json()) as SelfPayload);
         }
-        const data = await res.json();
-        if (!cancelled)
-          setConnStatus({
-            instagram: !!data?.instagram?.connected,
-            google: !!data?.google?.connected,
-          });
       } catch {
-        if (!cancelled) setConnStatus({ instagram: false, google: false });
+        // Ignore — the onboarding still works without a name.
       }
     })();
     return () => {
@@ -76,20 +78,45 @@ export default function OnboardingConnectingPage() {
     };
   }, [fetch]);
 
+  // For Instagram new-user signups, kick off the master intelligence build
+  // in the background. The endpoint is cached + de-duped, so calling it here
+  // means by the time the user lands on the dashboard the data is warm.
+  useEffect(() => {
+    if (provider !== 'instagram' || !isNewUser) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        await fetch('/creator/intelligence');
+      } catch {
+        // Ignore — non-fatal; the dashboard re-fetches on its own.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [provider, isNewUser, fetch]);
+
   useEffect(() => {
     if (step >= totalSteps) {
-      // Where to go: if both connected, dashboard. Otherwise back to /auth to
-      // connect the other provider.
-      const next =
-        connStatus && connStatus.instagram && connStatus.google
-          ? '/creator/research/profile'
-          : '/auth/login?stay=1';
-      const t = setTimeout(() => router.replace(next), 400);
+      // Always land on the creator dashboard after a successful sign-in.
+      // The user can navigate to the manager surface from the bottom-nav.
+      const target = '/creator/research/profile';
+      const t = setTimeout(() => router.replace(target), 500);
       return () => clearTimeout(t);
     }
     const t = setTimeout(() => setStep((s) => s + 1), PER_STEP_MS);
     return () => clearTimeout(t);
-  }, [step, totalSteps, router, connStatus]);
+  }, [step, totalSteps, router]);
+
+  const greeting = (() => {
+    if (provider === 'instagram') {
+      const handle = self?.instagramHandle ?? null;
+      if (handle) return isNewUser ? `Welcome ${handle}!` : `Welcome back ${handle}`;
+      return isNewUser ? 'Welcome to Illuminati!' : 'Welcome back';
+    }
+    const email = self?.googleEmail;
+    return email ? `Welcome ${email.split('@')[0]}` : 'Welcome back';
+  })();
 
   return (
     <div className="flex min-h-screen w-full flex-col items-center justify-center bg-[#0F0F0F] px-4 py-10">
@@ -104,28 +131,23 @@ export default function OnboardingConnectingPage() {
 
         <div
           className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl"
-          style={{
-            backgroundColor: `${config.accent}22`,
-            color: config.accent,
-          }}
+          style={{ backgroundColor: `${config.accent}22`, color: config.accent }}
         >
           <Icon className="h-7 w-7" />
         </div>
 
         <h1 className="mb-1 text-center text-xl font-semibold text-white">
-          {config.title}
+          {greeting}
         </h1>
-        <p className="mb-8 text-center text-sm text-[#9C9C9C]">
-          This will only take a moment.
-        </p>
+        <p className="mb-8 text-center text-sm text-[#9C9C9C]">{config.title}…</p>
 
         {warning === 'no_ig_business' && (
           <div className="mb-3 flex w-full items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <div>
-              <div className="font-semibold">Instagram connected — but no Business account found.</div>
+              <div className="font-semibold">No Business account found.</div>
               <div className="mt-1 opacity-90">
-                Profile insights require an IG Business or Creator account linked to a Facebook Page. Set that up at business.facebook.com, then reconnect from Settings.
+                Profile insights require an IG Business or Creator account linked to a Facebook Page.
               </div>
             </div>
           </div>
@@ -136,10 +158,7 @@ export default function OnboardingConnectingPage() {
             const done = idx < step;
             const active = idx === step;
             return (
-              <li
-                key={label}
-                className="flex items-center gap-3 rounded-xl px-2 py-1.5"
-              >
+              <li key={label} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
                 <div
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
                   style={{
@@ -160,11 +179,7 @@ export default function OnboardingConnectingPage() {
                   )}
                 </div>
                 <span
-                  className={
-                    done || active
-                      ? 'text-sm text-white'
-                      : 'text-sm text-[#6B6B6B]'
-                  }
+                  className={done || active ? 'text-sm text-white' : 'text-sm text-[#6B6B6B]'}
                 >
                   {label}
                 </span>

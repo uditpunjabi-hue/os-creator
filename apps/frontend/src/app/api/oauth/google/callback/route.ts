@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@gitroom/frontend/lib/server/prisma';
-import { ensureDemoUser } from '@gitroom/frontend/lib/server/auth';
+import {
+  readCurrentUserIdSilent,
+  signInWithGoogle,
+} from '@gitroom/frontend/lib/server/auth';
 import { signInUser, frontendUrl, backendBase } from '@gitroom/frontend/lib/server/cookie';
 
 export const runtime = 'nodejs';
@@ -56,23 +58,33 @@ export async function GET(req: NextRequest) {
     } catch (e) {
       console.warn(`[google callback] userinfo fetch failed: ${(e as Error).message}`);
     }
+    if (!email) {
+      // Without an email we can't reliably identify the user across sessions.
+      // The Google scope set always includes openid+email, so this should
+      // never happen in practice — fail loud rather than seeding a ghost row.
+      return NextResponse.redirect(
+        frontendUrl('/auth/login?error=google_no_email', req)
+      );
+    }
 
-    const demoUser = await ensureDemoUser();
-    await prisma.user.update({
-      where: { id: demoUser.id },
-      data: {
-        googleAccessToken: tokens.access_token,
-        ...(tokens.refresh_token ? { googleRefreshToken: tokens.refresh_token } : {}),
-        googleExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+    // If they're already signed in (e.g. via Instagram), attach Google to
+    // that account instead of creating a duplicate user.
+    const currentUserId = await readCurrentUserIdSilent();
+    const { user, isNewUser } = await signInWithGoogle(
+      {
         googleEmail: email,
-        googleConnectedAt: new Date(),
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? null,
+        expiresIn: tokens.expires_in ?? null,
       },
-    });
-
-    const res = NextResponse.redirect(
-      frontendUrl('/onboarding/connecting?provider=google&status=success', req)
+      currentUserId
     );
-    await signInUser(res, demoUser.id);
+
+    const target = isNewUser
+      ? '/onboarding/connecting?provider=google&status=success&new=1'
+      : '/onboarding/connecting?provider=google&status=success';
+    const res = NextResponse.redirect(frontendUrl(target, req));
+    await signInUser(res, user.id);
     return res;
   } catch (e) {
     console.error('[google callback] crashed', e);

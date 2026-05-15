@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2, IndianRupee } from 'lucide-react';
+import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2, IndianRupee, LogOut } from 'lucide-react';
 import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { Input } from '@gitroom/frontend/components/shadcn/ui/input';
@@ -26,10 +26,11 @@ const sections: { key: Section; label: string; description: string; icon: typeof
   { key: 'integrations', label: 'API connections', description: 'Connect Gmail, Stripe and more', icon: Plug },
 ];
 
-const team = [
-  { name: 'You', email: 'opnclaw123@gmail.com', role: 'Owner' },
-  { name: 'Mira K.', email: 'mira@Illuminati.app', role: 'Admin' },
-  { name: 'Devansh R.', email: 'dev@Illuminati.app', role: 'Member' },
+// Team list is rendered with the logged-in user as the Owner row; invites
+// + multi-seat support comes later. Keeping a deterministic stub row for
+// "you" so the team tab isn't empty for solo creators.
+const buildTeam = (selfEmail: string | null, selfName: string | null) => [
+  { name: selfName || 'You', email: selfEmail || 'your account', role: 'Owner' },
 ];
 
 const notifyOptions = [
@@ -101,30 +102,7 @@ export default function SettingsPage() {
             {active === 'profile' && <ProfilePanel />}
             {active === 'rates' && <RateCardPanel />}
 
-            {active === 'team' && (
-              <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <h2 className="text-base font-semibold text-gray-900">Team</h2>
-                <p className="mt-1 text-xs text-gray-500">Who can see and act on this workspace</p>
-                <ul className="mt-5 flex flex-col gap-2">
-                  {team.map((t) => (
-                    <li key={t.email} className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-gray-900">{t.name}</div>
-                        <div className="truncate text-xs text-gray-500">{t.email}</div>
-                      </div>
-                      <Badge variant={t.role === 'Owner' ? 'default' : 'secondary'}>{t.role}</Badge>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                  <input
-                    placeholder="teammate@email.com"
-                    className="h-11 flex-1 rounded-xl border border-gray-200 px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                  />
-                  <Button className="h-11">Send invite</Button>
-                </div>
-              </section>
-            )}
+            {active === 'team' && <TeamPanel />}
 
             {active === 'notifications' && (
               <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -322,6 +300,43 @@ function IntegrationsPanel() {
 // purges related caches.
 // ---------------------------------------------------------------------------
 
+function TeamPanel() {
+  const { data } = useManagerProfile();
+  const team = buildTeam(data?.email ?? null, data?.name ?? null);
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-gray-900">Team</h2>
+      <p className="mt-1 text-xs text-gray-500">
+        Multi-seat support is coming — for now you're the owner of this workspace.
+      </p>
+      <ul className="mt-5 flex flex-col gap-2">
+        {team.map((t) => (
+          <li
+            key={t.email}
+            className="flex items-center justify-between rounded-xl border border-gray-200 p-3"
+          >
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-gray-900">{t.name}</div>
+              <div className="truncate text-xs text-gray-500">{t.email}</div>
+            </div>
+            <Badge variant="default">{t.role}</Badge>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <input
+          placeholder="teammate@email.com"
+          disabled
+          className="h-11 flex-1 rounded-xl border border-gray-200 px-3 text-sm placeholder:text-gray-400 disabled:bg-gray-50"
+        />
+        <Button className="h-11" disabled>
+          Coming soon
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function ProfilePanel() {
   const { data, isLoading } = useManagerProfile();
   const { saveProfile, disconnectProvider } = useManagerMutations();
@@ -448,7 +463,52 @@ function ProfilePanel() {
           onDisconnect={() => disconnectProvider('google')}
         />
       </div>
+
+      <LogoutRow />
     </section>
+  );
+}
+
+function LogoutRow() {
+  const fetch = useFetch();
+  const [busy, setBusy] = useState(false);
+  const handleLogout = async () => {
+    if (busy) return;
+    if (!confirm('Sign out of Illuminati?')) return;
+    setBusy(true);
+    try {
+      // Hit our cookie-clearing endpoint + best-effort client-side wipe so
+      // both httpOnly (prod) and non-httpOnly (dev) cookies vanish.
+      await fetch('/auth/logout', { method: 'POST' }).catch(() => null);
+      if (typeof document !== 'undefined') {
+        document.cookie = 'auth=; path=/; max-age=0';
+        document.cookie = 'showorg=; path=/; max-age=0';
+      }
+      window.location.href = '/auth/login';
+    } catch {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-6 flex items-center justify-between rounded-xl border border-rose-100 bg-rose-50/40 p-3">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-rose-700">Sign out</div>
+        <div className="text-xs text-rose-700/70">Ends this session on this device</div>
+      </div>
+      <button
+        type="button"
+        onClick={handleLogout}
+        disabled={busy}
+        className="inline-flex h-10 items-center gap-1.5 rounded-full border border-rose-300 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+      >
+        {busy ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <LogOut className="h-3.5 w-3.5" />
+        )}
+        Sign out
+      </button>
+    </div>
   );
 }
 

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@gitroom/frontend/lib/server/prisma';
-import { ensureDemoUser } from '@gitroom/frontend/lib/server/auth';
+import { signInWithInstagram } from '@gitroom/frontend/lib/server/auth';
 import { signInUser, frontendUrl, backendBase } from '@gitroom/frontend/lib/server/cookie';
 
 export const runtime = 'nodejs';
@@ -121,37 +120,37 @@ export async function GET(req: NextRequest) {
     const tokenForIgCalls = pageWithIg?.access_token ?? fbToken;
     const fullyConnected = !!igProfile;
 
-    const demoUser = await ensureDemoUser();
-    await prisma.user.update({
-      where: { id: demoUser.id },
-      data: {
-        instagramAccessToken: tokenForIgCalls,
-        instagramUserId: igProfile?.id ?? pageWithIg?.instagram_business_account?.id ?? null,
-        instagramHandle: igProfile?.username ? `@${igProfile.username}` : null,
-        instagramFollowers: igProfile?.followers_count ?? null,
-        instagramMediaCount: igProfile?.media_count ?? null,
-        instagramBio: igProfile?.biography ?? null,
-        instagramProfilePic: igProfile?.profile_picture_url ?? null,
-        instagramConnectedAt: fullyConnected ? new Date() : null,
-      },
+    if (!fullyConnected || !igProfile) {
+      return NextResponse.redirect(
+        frontendUrl(
+          '/auth/login?error=no_ig_business&detail=' +
+            encodeURIComponent(
+              'Facebook returned 0 Pages. Link an IG Business/Creator account to a Facebook Page at business.facebook.com → Accounts → Instagram, then click Connect again.'
+            ),
+          req
+        )
+      );
+    }
+
+    const { user, isNewUser } = await signInWithInstagram({
+      instagramUserId: igProfile.id,
+      instagramHandle: igProfile.username ? `@${igProfile.username}` : null,
+      followers: igProfile.followers_count ?? null,
+      mediaCount: igProfile.media_count ?? null,
+      bio: igProfile.biography ?? null,
+      profilePic: igProfile.profile_picture_url ?? null,
+      accessToken: tokenForIgCalls,
     });
 
-    if (fullyConnected) {
-      const res = NextResponse.redirect(
-        frontendUrl('/onboarding/connecting?provider=instagram&status=success', req)
-      );
-      await signInUser(res, demoUser.id);
-      return res;
-    }
-    return NextResponse.redirect(
-      frontendUrl(
-        '/auth/login?error=no_ig_business&detail=' +
-          encodeURIComponent(
-            'Facebook returned 0 Pages. Link an IG Business/Creator account to a Facebook Page at business.facebook.com → Accounts → Instagram, then click Connect again.'
-          ),
-        req
-      )
-    );
+    // Land new users on the onboarding screen (it shows "Welcome @handle…"
+    // and runs the intelligence agent in the background); returning users
+    // skip straight to the dashboard.
+    const target = isNewUser
+      ? '/onboarding/connecting?provider=instagram&status=success&new=1'
+      : '/onboarding/connecting?provider=instagram&status=success';
+    const res = NextResponse.redirect(frontendUrl(target, req));
+    await signInUser(res, user.id);
+    return res;
   } catch (e) {
     const err = e as Error;
     console.error(`[IG callback] CRASH: ${err.message}\n${err.stack ?? '(no stack)'}`);
