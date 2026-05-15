@@ -202,6 +202,36 @@ export function useSchedule(fromYmd: string, toYmd: string) {
   return useApi<SchedulePayload>(`/creator/schedule?from=${fromYmd}&to=${toYmd}`);
 }
 
+// ---------------------------------------------------------------------------
+// Content Ideas — Mon-anchored weekly batch, 10 ideas per week.
+// ---------------------------------------------------------------------------
+
+export type IdeaStatus = 'NEW' | 'SAVED' | 'DISMISSED' | 'USED';
+export type IdeaSource = 'TRENDING' | 'INSPIRATION' | 'SEASONAL' | 'TOP_PERFORMING' | 'EVERGREEN';
+
+export interface ContentIdea {
+  id: string;
+  title: string;
+  hook: string | null;
+  format: string;
+  estimatedEngagement: number | null;
+  source: IdeaSource;
+  rationale: string | null;
+  status: IdeaStatus;
+  weekOf: string;
+  createdAt: string;
+}
+
+export interface IdeasResponse {
+  weekOf: string;
+  generatedAt: string;
+  ideas: ContentIdea[];
+}
+
+export function useContentIdeas() {
+  return useApi<IdeasResponse>('/creator/ideas');
+}
+
 // Convenience: trigger a fresh server-side compute (bypasses memoryCache) and
 // then mutate the SWR cache with the result.
 export async function forceRefresh<T>(

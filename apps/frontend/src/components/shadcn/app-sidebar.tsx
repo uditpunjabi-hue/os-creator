@@ -16,6 +16,8 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  Lightbulb,
+  Hash,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@gitroom/frontend/lib/utils';
@@ -36,6 +38,7 @@ const contentNav: NavSection[] = [
   {
     title: 'Content',
     items: [
+      { label: 'Ideas', href: '/creator/content/ideas', icon: Lightbulb },
       { label: 'Script', href: '/creator/content/scripts', icon: FileText },
       { label: 'Create', href: '/creator/content/new', icon: Sparkles },
     ],

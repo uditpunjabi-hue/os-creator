@@ -13,6 +13,7 @@ import {
   Briefcase,
   Wallet,
   Settings,
+  Lightbulb,
   type LucideIcon,
 } from 'lucide-react';
 import { cn } from '@gitroom/frontend/lib/utils';
@@ -27,10 +28,10 @@ interface Tab {
 
 const contentTabs: Tab[] = [
   { label: 'Profile', href: '/creator/research/profile', icon: Search, match: (p) => p.startsWith('/creator/research') },
-  { label: 'Script', href: '/creator/content/scripts', icon: FileText, match: (p) => p.startsWith('/creator/content/scripts') },
-  { label: 'Create', href: '/creator/content/new', icon: Sparkles, match: (p) => p.startsWith('/creator/content/new') },
+  { label: 'Ideas', href: '/creator/content/ideas', icon: Lightbulb, match: (p) => p.startsWith('/creator/content/ideas') },
+  { label: 'Create', href: '/creator/content/new', icon: Sparkles, match: (p) => p.startsWith('/creator/content/new') || p.startsWith('/creator/content/scripts') },
   { label: 'Calendar', href: '/creator/schedule', icon: CalendarIcon, match: (p) => p.startsWith('/creator/schedule') },
-  { label: 'Analytics', href: '/creator/analytics', icon: BarChart3, match: (p) => p.startsWith('/creator/analytics') },
+  { label: 'Stats', href: '/creator/analytics', icon: BarChart3, match: (p) => p.startsWith('/creator/analytics') },
 ];
 
 const managerTabs: Tab[] = [

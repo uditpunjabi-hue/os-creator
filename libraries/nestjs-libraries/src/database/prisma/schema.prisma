@@ -56,6 +56,11 @@ model Organization {
   scheduledPosts      ScheduledPost[]
   contentPieces       ContentPiece[]
   rateCard            RateCard?
+  contentIdeas        ContentIdea[]
+  hashtagSets         HashtagSet[]
+  savedCaptions       SavedCaption[]
+  brandContacts       BrandContact[]
+  invoices            Invoice[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -128,6 +133,12 @@ model User {
   oauthAuthorizations   OAuthAuthorization[]
   scripts               Script[]
   userMode              UserMode             @default(MANAGER)
+  contentIdeas          ContentIdea[]
+  hashtagSets           HashtagSet[]
+  savedCaptions         SavedCaption[]
+  userNotifications     UserNotification[]
+  prefsLanguage         String?
+  prefsTheme            String?
 
   // Google OAuth (Gmail + Calendar + Drive)
   googleAccessToken     String?
@@ -1350,4 +1361,169 @@ model ScheduledPost {
   @@index([influencerId])
   @@index([scheduledAt])
   @@index([status])
+}
+
+enum ContentIdeaStatus {
+  NEW
+  SAVED
+  DISMISSED
+  USED
+}
+
+enum ContentIdeaSource {
+  TRENDING
+  INSPIRATION
+  SEASONAL
+  TOP_PERFORMING
+  EVERGREEN
+}
+
+model ContentIdea {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  userId              String
+  title               String
+  hook                String?
+  format              String             @default("Reel")
+  estimatedEngagement Float?
+  source              ContentIdeaSource  @default(TRENDING)
+  rationale           String?
+  status              ContentIdeaStatus  @default(NEW)
+  weekOf              DateTime
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  organization        Organization       @relation(fields: [organizationId], references: [id])
+  user                User               @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([weekOf])
+  @@index([status])
+}
+
+model HashtagSet {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  name           String
+  topic          String?
+  tags           String[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+}
+
+model SavedCaption {
+  id             String       @id @default(uuid())
+  organizationId String
+  userId         String
+  topic          String?
+  tone           String?
+  body           String
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId])
+  @@index([userId])
+}
+
+enum BrandContactStatus {
+  NEW
+  ACTIVE
+  DORMANT
+  CHURNED
+}
+
+model BrandContact {
+  id              String              @id @default(uuid())
+  organizationId  String
+  name            String
+  industry        String?
+  contactName     String?
+  contactEmail    String?
+  status          BrandContactStatus  @default(NEW)
+  totalEarned     Decimal?            @db.Decimal(12, 2)
+  currency        String              @default("USD")
+  lastInteraction DateTime?
+  notes           String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  organization    Organization        @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, contactEmail])
+  @@index([organizationId])
+  @@index([status])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  VIEWED
+  PAID
+  OVERDUE
+  VOID
+}
+
+model Invoice {
+  id             String         @id @default(uuid())
+  organizationId String
+  number         String
+  brandName      String
+  brandEmail     String?
+  brandAddress   String?
+  fromName       String?
+  fromEmail      String?
+  fromAddress    String?
+  items          Json
+  subtotal       Decimal        @db.Decimal(12, 2)
+  taxRate        Float          @default(0)
+  taxAmount      Decimal        @db.Decimal(12, 2) @default(0)
+  total          Decimal        @db.Decimal(12, 2)
+  currency       String         @default("USD")
+  notes          String?
+  terms          String?
+  status         InvoiceStatus  @default(DRAFT)
+  dueAt          DateTime?
+  sentAt         DateTime?
+  paidAt         DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([brandName])
+}
+
+enum UserNotificationKind {
+  NEW_EMAIL
+  DEAL_DEADLINE
+  PAYMENT_OVERDUE
+  SCRIPT_READY
+  WEEKLY_REPORT_READY
+  POST_MILESTONE
+  IDEAS_REFRESHED
+  SYSTEM
+}
+
+model UserNotification {
+  id        String               @id @default(uuid())
+  userId    String
+  kind      UserNotificationKind @default(SYSTEM)
+  title     String
+  body      String?
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime             @default(now())
+  user      User                 @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([readAt])
+  @@index([createdAt])
 }
