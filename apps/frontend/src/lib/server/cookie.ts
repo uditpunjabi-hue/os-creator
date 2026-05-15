@@ -44,12 +44,26 @@ export function frontendUrl(path: string, req?: Request): string {
  * Resolution: OAUTH_REDIRECT_BASE → FRONTEND_URL → request origin → localhost.
  * The request-origin fallback means Vercel deploys still work even if the
  * user forgets to set either env var.
+ *
+ * In production we additionally REJECT anything that resolves to localhost /
+ * 127.0.0.1 — Facebook will refuse it, the resulting bounce would be a
+ * confusing "Invalid redirect URI" without obvious cause. Fail-loud lets the
+ * operator notice missing FRONTEND_URL on deploy.
  */
 export function backendBase(req?: Request): string {
-  return (
+  const computed = (
     process.env.OAUTH_REDIRECT_BASE ??
     process.env.FRONTEND_URL ??
     (req ? new URL(req.url).origin : undefined) ??
     'http://localhost:4200'
   ).replace(/\/$/, '');
+
+  if (process.env.NODE_ENV === 'production') {
+    if (/localhost|127\.0\.0\.1|0\.0\.0\.0/.test(computed)) {
+      throw new Error(
+        `OAuth redirect base resolved to "${computed}" in production. Set FRONTEND_URL to your public origin (e.g. https://os-creator.vercel.app) in Vercel env vars.`
+      );
+    }
+  }
+  return computed;
 }

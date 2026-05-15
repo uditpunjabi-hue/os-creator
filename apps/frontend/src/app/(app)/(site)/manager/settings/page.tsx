@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2, IndianRupee, LogOut } from 'lucide-react';
+import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2, IndianRupee, LogOut, RefreshCw, UserPlus } from 'lucide-react';
 import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { Input } from '@gitroom/frontend/components/shadcn/ui/input';
@@ -464,50 +464,116 @@ function ProfilePanel() {
         />
       </div>
 
-      <LogoutRow />
+      <AccountActions
+        currentHandle={data?.connections.instagram.handle ?? null}
+      />
     </section>
   );
 }
 
-function LogoutRow() {
+/**
+ * Profile-switcher row — "Switch account" routes through the IG OAuth start
+ * after clearing the current session, so the user can pick a different IG
+ * Business account. "Add account" is the multi-account future; for now we
+ * stub it as Coming soon. "Sign out" remains.
+ */
+function AccountActions({ currentHandle }: { currentHandle: string | null }) {
   const fetch = useFetch();
-  const [busy, setBusy] = useState(false);
-  const handleLogout = async () => {
-    if (busy) return;
-    if (!confirm('Sign out of Illuminati?')) return;
-    setBusy(true);
-    try {
-      // Hit our cookie-clearing endpoint + best-effort client-side wipe so
-      // both httpOnly (prod) and non-httpOnly (dev) cookies vanish.
-      await fetch('/auth/logout', { method: 'POST' }).catch(() => null);
-      if (typeof document !== 'undefined') {
-        document.cookie = 'auth=; path=/; max-age=0';
-        document.cookie = 'showorg=; path=/; max-age=0';
-      }
-      window.location.href = '/auth/login';
-    } catch {
-      setBusy(false);
+  const { backendUrl } = useVariables();
+  const [busy, setBusy] = useState<null | 'switch' | 'logout'>(null);
+
+  const clearSessionAnd = async (target: string) => {
+    // Same flow as the layout's 401 handler: server-side cookie clear, then
+    // navigate. Awaiting the response is essential — without it the Set-
+    // Cookie hasn't landed and the next request still carries the JWT.
+    await fetch('/auth/logout', { method: 'POST' }).catch(() => null);
+    if (typeof document !== 'undefined') {
+      document.cookie = 'auth=; path=/; max-age=0';
+      document.cookie = 'showorg=; path=/; max-age=0';
     }
+    window.location.href = target;
   };
+
   return (
-    <div className="mt-6 flex items-center justify-between rounded-xl border border-rose-100 bg-rose-50/40 p-3">
-      <div className="min-w-0">
-        <div className="text-sm font-semibold text-rose-700">Sign out</div>
-        <div className="text-xs text-rose-700/70">Ends this session on this device</div>
+    <div className="mt-8">
+      <h3 className="text-sm font-semibold text-gray-900">Account</h3>
+      <p className="mt-1 text-xs text-gray-500">
+        {currentHandle
+          ? `Signed in as ${currentHandle}`
+          : 'Switch to a different Instagram account, or sign out entirely'}
+      </p>
+      <div className="mt-3 flex flex-col gap-2">
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={async () => {
+            if (!confirm('Sign out and switch to a different Instagram account?')) return;
+            setBusy('switch');
+            await clearSessionAnd(`${backendUrl}/oauth/instagram/start`);
+          }}
+          className="flex items-center justify-between rounded-xl border border-gray-200 bg-white p-3 text-left transition-colors hover:border-purple-300 disabled:opacity-50"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
+              {busy === 'switch' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900">Switch account</div>
+              <div className="text-xs text-gray-500">
+                Sign out and connect a different Instagram account
+              </div>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-gray-300" />
+        </button>
+
+        <div className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50/60 p-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gray-100 text-gray-500">
+              <UserPlus className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-gray-900">Add account</div>
+              <div className="text-xs text-gray-500">
+                Manage multiple Instagram accounts at once
+              </div>
+            </div>
+          </div>
+          <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-700">
+            Coming soon
+          </span>
+        </div>
+
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={async () => {
+            if (!confirm('Sign out of Illuminati?')) return;
+            setBusy('logout');
+            await clearSessionAnd('/auth/login');
+          }}
+          className="flex items-center justify-between rounded-xl border border-rose-200 bg-rose-50/40 p-3 text-left transition-colors hover:border-rose-300 disabled:opacity-50"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+              {busy === 'logout' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <LogOut className="h-4 w-4" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-rose-700">Sign out</div>
+              <div className="text-xs text-rose-700/70">Ends this session on this device</div>
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-rose-300" />
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={handleLogout}
-        disabled={busy}
-        className="inline-flex h-10 items-center gap-1.5 rounded-full border border-rose-300 bg-white px-3 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-      >
-        {busy ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <LogOut className="h-3.5 w-3.5" />
-        )}
-        Sign out
-      </button>
     </div>
   );
 }

@@ -9,15 +9,19 @@ import {
   Star,
   Loader2,
   Sparkles,
+  Mail,
+  ArrowRight,
 } from 'lucide-react';
 import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { useVariables } from '@gitroom/react/helpers/variable.context';
 import { SkeletonList } from '@gitroom/frontend/components/ui/skeleton';
 import {
   useInboxThreads,
   useInboxTemplates,
   useManagerMutations,
+  useManagerProfile,
   type EmailThread,
   type ThreadStatus,
 } from '@gitroom/frontend/hooks/manager';
@@ -54,6 +58,8 @@ export default function InboxPage() {
   }, [query]);
 
   const { data: threads, isLoading } = useInboxThreads(debounced);
+  const { data: profile } = useManagerProfile();
+  const googleConnected = profile?.connections.google.connected ?? false;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(
     () => threads?.find((t) => t.id === selectedId) ?? null,
@@ -62,6 +68,10 @@ export default function InboxPage() {
 
   const unreadCount = (threads ?? []).filter((t) => t.unread).length;
   const starredCount = (threads ?? []).filter((t) => t.starred).length;
+  // Empty + not-connected = pre-onboarding state; empty + connected = real
+  // empty inbox. The CTA only renders on the pre-onboarding branch.
+  const showConnectGoogle =
+    !googleConnected && (threads?.length ?? 0) === 0 && !isLoading;
 
   return (
     <div className="flex h-full flex-col">
@@ -100,9 +110,11 @@ export default function InboxPage() {
             <div className="p-4">
               <SkeletonList count={6} />
             </div>
+          ) : showConnectGoogle ? (
+            <ConnectGoogleEmpty />
           ) : (threads ?? []).length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-gray-500">
-              {debounced ? `No threads matching "${debounced}".` : 'Inbox is empty.'}
+              {debounced ? `No threads matching "${debounced}".` : 'No brand emails yet — they’ll show up when brands reach out.'}
             </div>
           ) : (
             <ul className="divide-y divide-gray-100">
@@ -408,6 +420,37 @@ function ThreadView({ thread, onBack }: { thread: EmailThread; onBack: () => voi
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Friendly pre-onboarding state for users who haven't connected Google yet.
+// The Inbox + AI Reply features need Gmail; everything else in Manager works
+// fine without it, so the CTA is informative, not blocking.
+function ConnectGoogleEmpty() {
+  const { backendUrl } = useVariables();
+  return (
+    <div className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+        <Mail className="h-6 w-6" />
+      </div>
+      <div>
+        <div className="text-base font-semibold text-gray-900">
+          Connect Google to see your brand emails
+        </div>
+        <p className="mx-auto mt-1 max-w-sm text-sm text-gray-600">
+          Inbox pulls collaboration threads from Gmail and lets the AI suggest replies.
+          The rest of the app — deals, payments, schedule, creator features — works without it.
+        </p>
+      </div>
+      <a
+        href={`${backendUrl}/oauth/google/start`}
+        className="inline-flex h-11 items-center gap-1.5 rounded-full bg-purple-600 px-4 text-sm font-semibold text-white hover:bg-purple-700"
+      >
+        Connect Google
+        <ArrowRight className="h-4 w-4" />
+      </a>
+      <div className="text-[11px] text-gray-400">Takes about 10 seconds · one Google account</div>
     </div>
   );
 }

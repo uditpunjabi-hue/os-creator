@@ -17,12 +17,13 @@ type ProviderKey = 'instagram' | 'google';
 
 const knownErrors: Record<string, string> = {
   google_token_exchange:
-    'Google rejected the token exchange. Check OAuth client + redirect URI in console.cloud.google.com.',
+    "Google sign-in is being set up — we're still in testing-mode approval. Continue with Instagram for now; you can connect Google later from Settings.",
   google_no_email:
     'Google did not return an email address. Try again with a different account.',
   meta_token_exchange:
     'Meta rejected the token exchange. Check META_APP_ID + META_APP_SECRET and the redirect URI in developers.facebook.com.',
-  google_callback: 'Google callback failed unexpectedly. Check the backend logs.',
+  google_callback:
+    "Google sign-in is being set up — we're still in testing-mode approval. Continue with Instagram for now; you can connect Google later from Settings.",
   instagram_callback:
     'Instagram callback failed unexpectedly. Check the backend logs.',
   no_code:
@@ -30,7 +31,7 @@ const knownErrors: Record<string, string> = {
   no_ig_business:
     'Instagram OAuth completed but no Business / Creator account was found. Link your IG account to a Facebook Page first.',
   access_denied:
-    'You denied access on the consent screen. Reconnect and approve the requested permissions.',
+    "Access was denied on the consent screen. If you tried Google, it's currently in testing mode — use Instagram to sign in for now.",
 };
 
 export function IlluminatiAuth() {
@@ -86,45 +87,57 @@ export function IlluminatiAuth() {
         )}
 
         <div className="mt-8 flex w-full flex-col gap-3">
-          <button
-            type="button"
-            onClick={() => handleConnect('instagram')}
-            disabled={pending !== null}
-            className="group relative inline-flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#A855F7] to-[#EC4899] px-4 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(124,58,237,0.35)] transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-80"
-          >
-            {pending === 'instagram' ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <Instagram className="h-5 w-5" />
-            )}
-            <span>Continue with Instagram</span>
-            {pending !== 'instagram' && (
-              <ArrowRight className="h-4 w-4 opacity-80 transition-transform group-hover:translate-x-0.5" />
-            )}
-          </button>
+          {/* Primary CTA — Instagram is all you need to use the app. The
+              recommended-pill anchors it visually so it doesn't look like
+              two equal options. */}
+          <div className="relative">
+            <span className="absolute -top-2.5 left-4 z-10 rounded-full bg-[#F59E0B] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-black">
+              Recommended
+            </span>
+            <button
+              type="button"
+              onClick={() => handleConnect('instagram')}
+              disabled={pending !== null}
+              className="group relative inline-flex h-14 w-full items-center justify-center gap-3 overflow-hidden rounded-2xl bg-gradient-to-r from-[#7C3AED] via-[#A855F7] to-[#EC4899] px-4 text-sm font-semibold text-white shadow-[0_8px_24px_rgba(124,58,237,0.35)] transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-80"
+            >
+              {pending === 'instagram' ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Instagram className="h-5 w-5" />
+              )}
+              <span>Continue with Instagram</span>
+              {pending !== 'instagram' && (
+                <ArrowRight className="h-4 w-4 opacity-80 transition-transform group-hover:translate-x-0.5" />
+              )}
+            </button>
+          </div>
+
+          <div className="my-1 flex items-center gap-3 text-[10px] uppercase tracking-wider text-[#4B5563]">
+            <span className="h-px flex-1 bg-[#2A2A2A]" />
+            <span>Optional</span>
+            <span className="h-px flex-1 bg-[#2A2A2A]" />
+          </div>
 
           <button
             type="button"
             onClick={() => handleConnect('google')}
             disabled={pending !== null}
-            className="group relative inline-flex h-14 w-full items-center justify-center gap-3 rounded-2xl border border-[#2A2A2A] bg-white px-4 text-sm font-semibold text-[#0F0F0F] shadow-[0_8px_24px_rgba(0,0,0,0.25)] transition-transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-80"
+            className="group relative inline-flex h-12 w-full items-center justify-center gap-3 rounded-2xl border border-[#2A2A2A] bg-[#1A1A1A] px-4 text-sm font-medium text-white transition-colors hover:border-[#3A3A3A] hover:bg-[#1F1F1F] disabled:opacity-80"
           >
             {pending === 'google' ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <GoogleIcon className="h-5 w-5" />
+              <GoogleIcon className="h-4 w-4" />
             )}
             <span>Continue with Google</span>
-            {pending !== 'google' && (
-              <ArrowRight className="h-4 w-4 text-[#4B5563] transition-transform group-hover:translate-x-0.5" />
-            )}
+            <span className="text-[11px] text-[#6B7280]">(Gmail + Calendar)</span>
           </button>
         </div>
 
-        <p className="mt-8 max-w-[360px] text-center text-[11px] leading-relaxed text-[#6B7280]">
-          By continuing you agree to grant Illuminati permission to read your
-          profile and manage your content. You can disconnect from Settings at
-          any time.
+        <p className="mt-6 max-w-[360px] text-center text-[11px] leading-relaxed text-[#6B7280]">
+          Instagram is all you need to start. Google connects optional
+          inbox / calendar features and can be added later from Settings.
+          You can disconnect at any time.
         </p>
       </div>
     </div>

@@ -42,6 +42,7 @@ import { AttachToFeedbackIcon } from '@gitroom/frontend/components/new-layout/se
 import { FirstBillingComponent } from '@gitroom/frontend/components/billing/first.billing.component';
 import { ProductProvider } from '@gitroom/frontend/components/layout/product.context';
 import { ProductSwitcher } from '@gitroom/frontend/components/layout/product.switcher';
+import { ConnectGoogleBanner } from '@gitroom/frontend/components/layout/connect-google-banner';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500', '700'],
@@ -158,6 +159,7 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
               ) : (
                 <>
                   <AnnouncementBanner />
+                  <ConnectGoogleBanner />
                   <div className="flex flex-1">
                     <Support />
                     <div className="hidden lg:flex">
