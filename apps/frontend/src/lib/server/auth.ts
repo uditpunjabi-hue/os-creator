@@ -47,7 +47,22 @@ export async function getCurrentUser(): Promise<User> {
   if (!token) throw new AuthError(401, 'Not authenticated');
   const decoded = verifyJWT(token);
   if (!decoded?.id) throw new AuthError(401, 'Invalid session');
-  const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+  // Defensive: prefer a hand-picked select so a stale migration adding a new
+  // column to User can't 500 the whole auth path. If the user IS missing,
+  // throw the standard 401 the layout already handles by bouncing to login.
+  let user: User | null;
+  try {
+    user = (await prisma.user.findUnique({
+      where: { id: decoded.id },
+    })) as User | null;
+  } catch (e) {
+    // Most common cause: prefsLanguage / prefsTheme / similar new column
+    // present in the Prisma schema but not yet in the prod DB. We treat
+    // this as a transient "session can't be verified right now" so the
+    // user retries (and after migration deploy, succeeds).
+    console.warn(`getCurrentUser findUnique failed: ${(e as Error).message}`);
+    throw new AuthError(503, 'User store temporarily unavailable');
+  }
   if (!user) throw new AuthError(401, 'User no longer exists');
   return user;
 }

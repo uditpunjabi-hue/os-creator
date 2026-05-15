@@ -62,12 +62,13 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const searchParams = useSearchParams();
   const load = useCallback(async (path: string) => {
     const res = await fetch(path);
-    // Stale cookie / unauthenticated → server-side logout, then redirect to
-    // the login page. We MUST hit /auth/logout (httpOnly cookies in prod
-    // can't be cleared from JS) and we MUST await its Set-Cookie response
-    // before navigating — otherwise the middleware sees the still-present
-    // cookie and bounces us straight back to the dashboard, infinite loop.
-    if (res.status === 401) {
+    // 401 + 403 are both "your session is no good, send the user to login."
+    // We *also* fall through to login on any other 4xx because the dashboard
+    // can't render without /user/self — the user is stuck on a dead loader
+    // otherwise. 5xx stays as a retryable error so a transient backend blip
+    // doesn't log everyone out.
+    const isAuthBad = res.status === 401 || res.status === 403 || res.status === 404;
+    if (isAuthBad) {
       if (
         typeof window !== 'undefined' &&
         !window.location.pathname.startsWith('/auth')
@@ -109,20 +110,33 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
     const notAuthed = userError?.message === 'Not authenticated';
     return (
       <div className="flex min-h-screen w-screen items-center justify-center bg-white">
-        <div className="flex flex-col items-center gap-3">
+        <div className="flex max-w-sm flex-col items-center gap-3 px-6 text-center">
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-purple-200 border-t-purple-600" />
           <div className="text-sm text-gray-500">
             {notAuthed
               ? 'Redirecting to sign in…'
               : userError
-              ? 'Waiting for the API…'
+              ? 'Something went wrong loading your workspace'
               : 'Loading workspace…'}
           </div>
           {userError && !notAuthed && (
-            <div className="text-xs text-gray-400">
-              Backend at <code className="rounded bg-gray-100 px-1">{backendUrl}</code> is not
-              responding yet — will retry automatically.
-            </div>
+            <>
+              <div className="text-xs text-gray-400">
+                We&apos;ll keep retrying. If this sticks, signing out and back in usually fixes it.
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try { await fetch('/auth/logout', { method: 'POST' }); } catch {}
+                  if (typeof window !== 'undefined') {
+                    window.location.href = '/auth/login?stay=1';
+                  }
+                }}
+                className="mt-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-700 hover:border-purple-300 hover:text-purple-700"
+              >
+                Sign out and retry
+              </button>
+            </>
           )}
         </div>
       </div>

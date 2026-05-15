@@ -14,33 +14,64 @@ export const runtime = 'nodejs';
  *
  * Stripe is not configured (no STRIPE_PUBLISHABLE_KEY) so we hardcode the
  * "fully unlocked" tier the original endpoint emits in that mode.
+ *
+ * NOTE: we hand-pick the columns in `select` rather than letting Prisma
+ * default to SELECT *. This is the auth gate for the entire dashboard, so
+ * a stale migration that adds a column on User must NEVER be able to take
+ * the whole app down. Re-add fields to this select when the UI starts
+ * needing them; everything else lives on dedicated endpoints.
  */
 export const GET = withErrorHandling(async () => {
   const { user, org } = await getAuth();
 
-  const membership = await prisma.userOrganization.findFirst({
-    where: { userId: user.id, organizationId: org.id, disabled: false },
-    select: { role: true },
-  });
+  const [membership, fullUser] = await Promise.all([
+    prisma.userOrganization.findFirst({
+      where: { userId: user.id, organizationId: org.id, disabled: false },
+      select: { role: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        lastName: true,
+        bio: true,
+        pictureId: true,
+        timezone: true,
+        isSuperAdmin: true,
+        userMode: true,
+        connectedAccount: true,
+        instagramHandle: true,
+      },
+    }),
+  ]);
 
   const isBillingOn = !!process.env.STRIPE_PUBLISHABLE_KEY;
   const role = membership?.role ?? 'USER';
 
-  const { password: _pw, ...userSafe } = user as typeof user & { password?: string | null };
-
   return NextResponse.json({
-    ...userSafe,
+    id: user.id,
+    email: fullUser?.email ?? user.email,
+    name: fullUser?.name ?? null,
+    lastName: fullUser?.lastName ?? null,
+    bio: fullUser?.bio ?? null,
+    pictureId: fullUser?.pictureId ?? null,
+    timezone: fullUser?.timezone ?? 0,
+    isSuperAdmin: !!fullUser?.isSuperAdmin,
+    userMode: fullUser?.userMode ?? 'CREATOR',
+    connectedAccount: !!fullUser?.connectedAccount,
+    instagramHandle: fullUser?.instagramHandle ?? null,
     orgId: org.id,
     role,
     tier: isBillingOn ? 'FREE' : 'ULTIMATE',
     totalChannels: isBillingOn ? 5 : 10_000,
     isLifetime: false,
-    admin: !!user.isSuperAdmin,
+    admin: !!fullUser?.isSuperAdmin,
     impersonate: false,
     isTrailing: false,
     allowTrial: org.allowTrial,
     streakSince: org.streakSince ?? null,
-    userMode: (user as { userMode?: string }).userMode ?? 'CREATOR',
     publicApi: role === 'SUPERADMIN' || role === 'ADMIN' ? org.apiKey ?? '' : '',
   });
 });
