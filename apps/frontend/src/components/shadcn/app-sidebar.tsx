@@ -66,6 +66,7 @@ const managerNav: NavSection[] = [
     title: 'Plan',
     items: [
       { label: 'Projects', href: '/manager/projects', icon: Wallet },
+      { label: 'Invoices', href: '/manager/invoices', icon: FileText },
       { label: 'Calendar', href: '/manager/schedule', icon: CalendarIcon },
     ],
   },

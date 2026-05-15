@@ -344,6 +344,51 @@ export const useBrand = (id: string | null) => {
   return useSWR<BrandDetail>(id ? `/manager/brands/${id}` : null, load);
 };
 
+export type InvoiceStatus = 'DRAFT' | 'SENT' | 'VIEWED' | 'PAID' | 'OVERDUE' | 'VOID';
+
+export interface InvoiceLineItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+export interface InvoiceSummary {
+  id: string;
+  number: string;
+  brandName: string;
+  brandEmail: string | null;
+  total: number;
+  currency: string;
+  status: InvoiceStatus;
+  dueAt: string | null;
+  sentAt: string | null;
+  paidAt: string | null;
+  createdAt: string;
+}
+
+export interface InvoiceFull extends InvoiceSummary {
+  brandAddress: string | null;
+  fromName: string | null;
+  fromEmail: string | null;
+  fromAddress: string | null;
+  items: InvoiceLineItem[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  notes: string | null;
+  terms: string | null;
+}
+
+export const useInvoices = () => {
+  const load = useJsonLoader();
+  return useSWR<{ invoices: InvoiceSummary[] }>('/manager/invoices', load);
+};
+
+export const useInvoice = (id: string | null) => {
+  const load = useJsonLoader();
+  return useSWR<InvoiceFull>(id ? `/manager/invoices/${id}` : null, load);
+};
+
 export const useManagerMutations = () => {
   const fetch = useFetch();
 
