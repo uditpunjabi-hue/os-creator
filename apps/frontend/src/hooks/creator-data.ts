@@ -135,6 +135,9 @@ export interface IntelligenceResponse {
   engagementTrend: 'improving' | 'stable' | 'declining';
   topEngagementDrivers: string[];
   engagementKillers: string[];
+  avgCaptionLength: number;
+  bestCaptionStyle: string;
+  emojiUsage: string;
   thisWeekPlan: Array<{ day: string; action: string; reason: string }>;
   competitorInsights: {
     youPostMore: boolean;

@@ -144,6 +144,11 @@ interface Intelligence {
   avgEngagementRate: number;
   engagementTrend: 'improving' | 'stable' | 'declining';
   profileHealthScore: number;
+  avgCaptionLength: number;
+  bestCaptionStyle: string;
+  emojiUsage: string;
+  topEngagementDrivers: string[];
+  engagementKillers: string[];
 }
 
 type SortKey = 'recent' | 'likes' | 'comments' | 'engagement';
@@ -234,6 +239,34 @@ export default function CreatorAnalyticsPage() {
     return { likes, comments, interactions: likes + comments, posts: last30.length };
   }, [last30]);
 
+  // Week-over-week comparison — last 7 days vs the 7 days before that.
+  // Lets the creator see momentum at a glance without scrolling charts.
+  const weekly = useMemo(() => {
+    const now = Date.now();
+    const day = 86_400_000;
+    const sliceWindow = (start: number, end: number) =>
+      media.filter((m) => {
+        const t = +new Date(m.timestamp);
+        return t >= start && t < end;
+      });
+    const thisWeek = sliceWindow(now - 7 * day, now);
+    const prior = sliceWindow(now - 14 * day, now - 7 * day);
+    const sum = (arr: typeof media) => ({
+      posts: arr.length,
+      likes: arr.reduce((s, m) => s + m.likeCount, 0),
+      comments: arr.reduce((s, m) => s + m.commentsCount, 0),
+      interactions: arr.reduce((s, m) => s + m.likeCount + m.commentsCount, 0),
+      avgEng:
+        followers && followers > 0 && arr.length > 0
+          ? (arr.reduce((s, m) => s + m.likeCount + m.commentsCount, 0) /
+              arr.length /
+              followers) *
+            100
+          : 0,
+    });
+    return { thisWeek: sum(thisWeek), prior: sum(prior) };
+  }, [media, followers]);
+
   // Canonical engagement = the same number the Profile page tile uses.
   // Formula on the server (instagram.ts):
   //   (sum of likes + comments over the last 12 posts) / (followers × 12) × 100
@@ -317,13 +350,14 @@ export default function CreatorAnalyticsPage() {
         {!loading && !live && <ConnectPrompt backendUrl={backendUrl} />}
 
         {loading && (
+          // First-paint skeleton — kept compact so the page reveals as data
+          // arrives instead of feeling like a wall of grey blocks. Each real
+          // section also shows its own loading state once we have the
+          // profile but the AI calls are still in flight.
           <>
             <SkeletonStatGrid count={4} />
             <div className="mt-4">
-              <Skeleton className="h-32 w-full rounded-2xl" />
-            </div>
-            <div className="mt-4">
-              <SkeletonList count={3} />
+              <Skeleton className="h-24 w-full rounded-2xl" />
             </div>
           </>
         )}
@@ -339,8 +373,22 @@ export default function CreatorAnalyticsPage() {
               growth={growth}
             />
 
+            {/* Week-over-week comparison — high-signal "are you trending up" panel */}
+            <WeekOverWeek thisWeek={weekly.thisWeek} prior={weekly.prior} />
+
             {/* Best-performing post — big card, CTA to remix */}
             {bestPost && <BestPostCard post={bestPost} followers={followers} />}
+
+            {/* Caption insights from intel — surface what's working in the text */}
+            {intel && (intel.avgCaptionLength > 0 || intel.bestCaptionStyle || intel.emojiUsage) && (
+              <CaptionInsights
+                avgLength={intel.avgCaptionLength}
+                bestStyle={intel.bestCaptionStyle}
+                emojiUsage={intel.emojiUsage}
+                drivers={intel.topEngagementDrivers ?? []}
+                killers={intel.engagementKillers ?? []}
+              />
+            )}
 
             {/* AI Weekly report */}
             <WeeklyReportPanel
@@ -535,6 +583,162 @@ function StatCard({
       </div>
       {sublabel && <div className="text-[11px] text-gray-500">{sublabel}</div>}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Week-over-week comparison
+// ---------------------------------------------------------------------------
+
+interface WeekSlice {
+  posts: number;
+  likes: number;
+  comments: number;
+  interactions: number;
+  avgEng: number;
+}
+
+function WeekOverWeek({ thisWeek, prior }: { thisWeek: WeekSlice; prior: WeekSlice }) {
+  if (thisWeek.posts === 0 && prior.posts === 0) return null;
+  const items: Array<{ label: string; now: number; was: number; fmt: (n: number) => string }> = [
+    { label: 'Posts', now: thisWeek.posts, was: prior.posts, fmt: (n) => `${n}` },
+    { label: 'Interactions', now: thisWeek.interactions, was: prior.interactions, fmt },
+    { label: 'Likes', now: thisWeek.likes, was: prior.likes, fmt },
+    { label: 'Comments', now: thisWeek.comments, was: prior.comments, fmt },
+    {
+      label: 'Avg engagement',
+      now: thisWeek.avgEng,
+      was: prior.avgEng,
+      fmt: (n) => `${n.toFixed(2)}%`,
+    },
+  ];
+  return (
+    <section className="mt-4 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-gray-900">This week vs last</div>
+          <div className="text-[11px] text-gray-500">
+            Trailing 7 days compared to the 7 before that
+          </div>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-gray-400">
+          Live · last 14 days
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {items.map((it) => {
+          const diff = it.was === 0 ? (it.now > 0 ? 100 : 0) : ((it.now - it.was) / it.was) * 100;
+          const up = diff > 0;
+          const flat = Math.abs(diff) < 1;
+          const tone = flat ? 'text-gray-500' : up ? 'text-emerald-600' : 'text-rose-600';
+          const bg = flat ? 'bg-gray-100' : up ? 'bg-emerald-50' : 'bg-rose-50';
+          return (
+            <div key={it.label} className="rounded-xl border border-gray-200 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500">{it.label}</div>
+              <div className="mt-0.5 text-lg font-semibold text-gray-900 tabular-nums">
+                {it.fmt(it.now)}
+              </div>
+              <div className={cn('mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold', bg, tone)}>
+                {flat ? (
+                  <span>flat</span>
+                ) : up ? (
+                  <>
+                    <TrendingUp className="h-3 w-3" />
+                    {`+${Math.abs(diff).toFixed(0)}%`}
+                  </>
+                ) : (
+                  <>
+                    <TrendingDown className="h-3 w-3" />
+                    {`-${Math.abs(diff).toFixed(0)}%`}
+                  </>
+                )}
+                <span className="font-normal text-gray-500">vs {it.fmt(it.was)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Caption insights — what AI saw working in the writing
+// ---------------------------------------------------------------------------
+
+function CaptionInsights({
+  avgLength,
+  bestStyle,
+  emojiUsage,
+  drivers,
+  killers,
+}: {
+  avgLength: number;
+  bestStyle: string;
+  emojiUsage: string;
+  drivers: string[];
+  killers: string[];
+}) {
+  const lengthBand =
+    avgLength < 80 ? 'short' : avgLength < 200 ? 'medium' : avgLength < 500 ? 'long' : 'essay';
+  return (
+    <section className="mt-5 rounded-2xl border border-gray-200 bg-white p-4">
+      <div className="mb-3">
+        <div className="text-sm font-semibold text-gray-900">Caption insights</div>
+        <div className="text-[11px] text-gray-500">
+          What AI noticed about your writing across recent posts
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-gray-200 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-gray-500">Avg length</div>
+          <div className="mt-0.5 text-lg font-semibold text-gray-900">
+            {avgLength > 0 ? `${Math.round(avgLength)} chars` : '—'}
+          </div>
+          <div className="mt-0.5 text-[11px] capitalize text-gray-500">{lengthBand}</div>
+        </div>
+        <div className="rounded-xl border border-gray-200 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-gray-500">Best style</div>
+          <div className="mt-0.5 line-clamp-2 text-sm font-semibold text-gray-900">
+            {bestStyle || '—'}
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 p-3">
+          <div className="text-[10px] uppercase tracking-wide text-gray-500">Emoji usage</div>
+          <div className="mt-0.5 line-clamp-2 text-sm font-semibold text-gray-900">
+            {emojiUsage || '—'}
+          </div>
+        </div>
+      </div>
+      {(drivers.length > 0 || killers.length > 0) && (
+        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {drivers.length > 0 && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+                <TrendingUp className="h-3 w-3" /> What drives engagement
+              </div>
+              <ul className="ml-3 list-disc text-[11px] leading-relaxed text-gray-800">
+                {drivers.slice(0, 4).map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {killers.length > 0 && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50/60 p-3">
+              <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700">
+                <TrendingDown className="h-3 w-3" /> What kills engagement
+              </div>
+              <ul className="ml-3 list-disc text-[11px] leading-relaxed text-gray-800">
+                {killers.slice(0, 4).map((d, i) => (
+                  <li key={i}>{d}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
