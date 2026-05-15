@@ -44,6 +44,7 @@ import { ProductProvider } from '@gitroom/frontend/components/layout/product.con
 import { ProductSwitcher } from '@gitroom/frontend/components/layout/product.switcher';
 import { ConnectGoogleBanner } from '@gitroom/frontend/components/layout/connect-google-banner';
 import { HeaderAvatar } from '@gitroom/frontend/components/layout/header-avatar';
+import { NotificationBell } from '@gitroom/frontend/components/layout/notification-bell';
 
 const jakartaSans = Plus_Jakarta_Sans({
   weight: ['600', '500', '700'],
@@ -189,9 +190,11 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
                           <ChromeExtensionComponent />
                           <div className="h-5 w-px bg-gray-200" />
                           <AttachToFeedbackIcon />
+                          <NotificationBell />
                           <HeaderAvatar />
                         </div>
                         <div className="flex items-center gap-2 text-gray-500 lg:hidden">
+                          <NotificationBell />
                           <HeaderAvatar />
                         </div>
                       </div>
