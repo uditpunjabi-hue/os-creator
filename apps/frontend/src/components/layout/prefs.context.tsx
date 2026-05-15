@@ -20,7 +20,7 @@ import {
 // of the app (global.scss) can read them via CSS attribute selectors.
 // ---------------------------------------------------------------------------
 
-export type ThemeKey = 'dark' | 'midnight' | 'purple';
+export type ThemeKey = 'light' | 'dark';
 export type FontSizeKey = 'sm' | 'md' | 'lg';
 
 export interface Prefs {
@@ -30,7 +30,7 @@ export interface Prefs {
 }
 
 const DEFAULT: Prefs = {
-  theme: 'dark',
+  theme: 'light',
   fontSize: 'md',
   aiAgentName: 'Illuminati AI',
 };
@@ -63,6 +63,14 @@ function applyToRoot(prefs: Prefs) {
   const root = document.documentElement;
   root.setAttribute('data-theme', prefs.theme);
   root.setAttribute('data-font-size', prefs.fontSize);
+  // Dark surface overrides live under `body.dark` in global.scss — toggling
+  // the class is what actually flips every bg-white/text-gray-* across the
+  // app. data-theme alone only feeds the auth/onboarding gradient.
+  const body = document.body;
+  if (body) {
+    if (prefs.theme === 'dark') body.classList.add('dark');
+    else body.classList.remove('dark');
+  }
 }
 
 export function PrefsProvider({ children }: { children: ReactNode }) {
@@ -76,8 +84,17 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<Prefs>;
+        // Old installs may have 'midnight' / 'purple' stored from the
+        // previous 3-theme picker — normalize to dark.
+        const rawTheme = parsed.theme as string | undefined;
+        const theme: ThemeKey =
+          rawTheme === 'dark' || rawTheme === 'midnight' || rawTheme === 'purple'
+            ? 'dark'
+            : rawTheme === 'light'
+              ? 'light'
+              : DEFAULT.theme;
         const next: Prefs = {
-          theme: (parsed.theme as ThemeKey) ?? DEFAULT.theme,
+          theme,
           fontSize: (parsed.fontSize as FontSizeKey) ?? DEFAULT.fontSize,
           aiAgentName: (parsed.aiAgentName ?? DEFAULT.aiAgentName).trim() || DEFAULT.aiAgentName,
         };

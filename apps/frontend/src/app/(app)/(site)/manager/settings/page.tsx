@@ -343,10 +343,19 @@ function TeamPanel() {
 
 function AppearancePanel() {
   const { theme, fontSize, aiAgentName, setTheme, setFontSize, setAiAgentName } = usePrefs();
-  const themes: Array<{ id: ThemeKey; label: string; swatch: string }> = [
-    { id: 'dark', label: 'Dark', swatch: 'linear-gradient(135deg,#0F0F0F,#1F1F1F)' },
-    { id: 'midnight', label: 'Midnight Blue', swatch: 'linear-gradient(135deg,#0B1736,#1E40AF)' },
-    { id: 'purple', label: 'Deep Purple', swatch: 'linear-gradient(135deg,#1A0B2E,#7C3AED)' },
+  const themes: Array<{ id: ThemeKey; label: string; swatch: string; sub: string }> = [
+    {
+      id: 'light',
+      label: 'Light',
+      swatch: 'linear-gradient(135deg,#FFFFFF 50%,#F3F4F6)',
+      sub: 'White surfaces, dark text',
+    },
+    {
+      id: 'dark',
+      label: 'Dark',
+      swatch: 'linear-gradient(135deg,#0F0F0F 50%,#1F1F1F)',
+      sub: 'Near-black with purple accents',
+    },
   ];
   const fontSizes: Array<{ id: FontSizeKey; label: string }> = [
     { id: 'sm', label: 'Small' },
@@ -365,24 +374,27 @@ function AppearancePanel() {
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-gray-700">
             <Palette className="h-3.5 w-3.5" /> Theme
           </div>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             {themes.map((t) => (
               <button
                 key={t.id}
                 type="button"
                 onClick={() => setTheme(t.id)}
                 className={cn(
-                  'flex flex-col items-center gap-2 rounded-2xl border-2 p-3 transition-colors',
+                  'flex items-start gap-3 rounded-2xl border-2 p-3 text-left transition-colors',
                   theme === t.id
                     ? 'border-purple-600 bg-purple-50/40'
                     : 'border-gray-200 bg-white hover:border-gray-300'
                 )}
               >
                 <span
-                  className="h-12 w-full rounded-lg ring-1 ring-gray-200"
+                  className="h-14 w-14 shrink-0 rounded-xl ring-1 ring-gray-200"
                   style={{ background: t.swatch }}
                 />
-                <span className="text-[11px] font-medium text-gray-800">{t.label}</span>
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-sm font-semibold text-gray-900">{t.label}</span>
+                  <span className="text-[11px] text-gray-500">{t.sub}</span>
+                </span>
               </button>
             ))}
           </div>

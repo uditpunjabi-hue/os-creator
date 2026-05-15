@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Plus, Trash2, Loader2 } from 'lucide-react';
@@ -20,11 +20,24 @@ export default function NewInvoicePage() {
   const [brandName, setBrandName] = useState('');
   const [brandEmail, setBrandEmail] = useState('');
   const [brandAddress, setBrandAddress] = useState('');
-  const [fromName, setFromName] = useState(
-    [profile?.name, profile?.lastName].filter(Boolean).join(' ').trim() || ''
-  );
-  const [fromEmail, setFromEmail] = useState(profile?.email ?? '');
+  const [fromName, setFromName] = useState('');
+  const [fromEmail, setFromEmail] = useState('');
   const [fromAddress, setFromAddress] = useState('');
+
+  // Profile loads via SWR after first render — backfill the From fields
+  // once it arrives, but only if the user hasn't typed anything yet (so
+  // we never trample an in-progress edit).
+  useEffect(() => {
+    if (!profile) return;
+    const full = [profile.name, profile.lastName].filter(Boolean).join(' ').trim();
+    setFromName((prev) => (prev ? prev : full));
+    setFromEmail((prev) => (prev ? prev : profile.email ?? ''));
+  }, [profile]);
+
+  // Same pattern for currency: pick up the rate card default once it lands.
+  useEffect(() => {
+    if (rateCard?.currency) setCurrency((prev) => (prev === 'USD' ? rateCard.currency : prev));
+  }, [rateCard?.currency]);
   const [items, setItems] = useState<InvoiceLineItem[]>([
     { description: '1× Instagram Reel', quantity: 1, unitPrice: rateCard?.reelRate ?? 500 },
   ]);

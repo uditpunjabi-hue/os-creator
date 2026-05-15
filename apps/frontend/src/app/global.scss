@@ -153,6 +153,29 @@ body.dark {
   .bg-blue-100 { background-color: rgba(59, 130, 246, 0.22) !important; }
   .text-blue-700 { color: #93C5FD !important; }
 
+  /* Sky / Violet / Indigo — used by the newer Brands / Invoices / Hashtags
+     features. Without these the cards stay light-mode on dark surfaces. */
+  .bg-sky-50, .bg-sky-50\/40 { background-color: rgba(14, 165, 233, 0.10) !important; }
+  .bg-sky-100 { background-color: rgba(14, 165, 233, 0.22) !important; }
+  .text-sky-700, .text-sky-800 { color: #7DD3FC !important; }
+  .border-sky-200 { border-color: rgba(14, 165, 233, 0.35) !important; }
+
+  .bg-violet-50, .bg-violet-50\/40 { background-color: rgba(139, 92, 246, 0.10) !important; }
+  .bg-violet-100 { background-color: rgba(139, 92, 246, 0.22) !important; }
+  .text-violet-700, .text-violet-900 { color: #C4B5FD !important; }
+  .border-violet-200 { border-color: rgba(139, 92, 246, 0.35) !important; }
+
+  .border-rose-200 { border-color: rgba(244, 63, 94, 0.35) !important; }
+  .border-emerald-200 { border-color: rgba(16, 185, 129, 0.35) !important; }
+
+  /* Inputs / textareas — readable contrast on dark surfaces. */
+  input, textarea, select {
+    background-color: var(--illum-surface-2) !important;
+    color: var(--illum-text) !important;
+    border-color: var(--illum-border) !important;
+  }
+  input::placeholder, textarea::placeholder { color: var(--illum-text-subtle) !important; }
+
   .hover\:bg-gray-50:hover, .hover\:bg-gray-100:hover { background-color: var(--illum-surface-2) !important; }
   .hover\:border-purple-300:hover { border-color: var(--illum-primary) !important; }
   .hover\:text-gray-700:hover, .hover\:text-gray-900:hover { color: #FFFFFF !important; }
