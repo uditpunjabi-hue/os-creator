@@ -4,16 +4,27 @@ export const runtime = 'nodejs';
 
 /**
  * Clears the auth + org cookies so the next request lands on /auth/login.
- * Both the cookie clear and the explicit `auth-cleared` header are returned
- * so client-side cookie readers (used in non-secured dev mode) can flush
- * their local copies too.
+ *
+ * Browsers only delete a cookie when the `Set-Cookie` header on the delete
+ * request matches the flags the cookie was originally written with. Our
+ * sign-in path uses `{ httpOnly, secure, sameSite: 'none' }` in production
+ * and `{ sameSite: 'lax' }` in dev — so we set BOTH variants here. The
+ * mismatched one is a no-op; the matched one wins.
  */
 export async function POST() {
   const res = NextResponse.json({ ok: true });
-  // Empty value + maxAge=0 deletes the cookie regardless of how it was set
-  // (httpOnly or not, secure or not). Mirroring across both SameSite modes
-  // covers the prod and dev cookie shapes.
+  const secured = !process.env.NOT_SECURED;
   const expire = (name: string) => {
+    // Primary path matches what we wrote at sign-in.
+    res.cookies.set(name, '', {
+      path: '/',
+      maxAge: 0,
+      httpOnly: secured,
+      secure: secured,
+      sameSite: secured ? 'none' : 'lax',
+    });
+    // Belt + suspenders: also send a plain cookie in case the original was
+    // written before the secured flag was flipped (e.g. an old build).
     res.cookies.set(name, '', { path: '/', maxAge: 0 });
   };
   expire('auth');

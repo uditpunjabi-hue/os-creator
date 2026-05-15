@@ -59,20 +59,27 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   const searchParams = useSearchParams();
   const load = useCallback(async (path: string) => {
     const res = await fetch(path);
-    // Stale cookie / unauthenticated → bounce to login from the client so
-    // we don't render the app shell with the 401 error envelope in the
-    // user slot (which crashes downstream consumers reading `.current`).
+    // Stale cookie / unauthenticated → server-side logout, then redirect to
+    // the login page. We MUST hit /auth/logout (httpOnly cookies in prod
+    // can't be cleared from JS) and we MUST await its Set-Cookie response
+    // before navigating — otherwise the middleware sees the still-present
+    // cookie and bounces us straight back to the dashboard, infinite loop.
     if (res.status === 401) {
       if (
         typeof window !== 'undefined' &&
         !window.location.pathname.startsWith('/auth')
       ) {
-        // Clear any cookies the client can see, then redirect.
-        document.cookie = 'auth=; path=/; max-age=0';
-        document.cookie = 'showorg=; path=/; max-age=0';
-        window.location.href = '/auth/login';
+        try {
+          await fetch('/auth/logout', { method: 'POST' });
+        } catch {
+          // Network blip — fall through to the redirect anyway; the login
+          // page handles a present-but-invalid cookie too.
+        }
+        // ?stay=1 keeps the middleware from auto-redirecting back to the
+        // dashboard in the (unlikely) case the cookie is still readable.
+        window.location.href = '/auth/login?stay=1';
       }
-      // Throw so SWR sees an error rather than caching the envelope as data.
+      // Throw so SWR caches the error, not the 401 envelope as data.
       throw new Error('Not authenticated');
     }
     if (!res.ok) {
