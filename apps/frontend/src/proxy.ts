@@ -10,6 +10,33 @@ import {
 } from '@gitroom/react/translation/i18n.config';
 acceptLanguage.languages(languages);
 
+// ---------------------------------------------------------------------------
+// Auth-gate prefixes. Anything under these prefixes is reachable without an
+// auth cookie — every other page navigation forces a redirect to
+// /auth/login. The matcher below already excludes /api/* so we don't need
+// to whitelist API routes here; server-side route handlers do their own
+// JWT checks via getAuth() and throw 401 directly.
+// ---------------------------------------------------------------------------
+const PUBLIC_PREFIXES = [
+  '/auth',
+  '/onboarding',
+  '/p/',
+  '/provider/',
+  '/uploads/',
+  '/integrations/social/',
+];
+
+function isPublicPath(pathname: string): boolean {
+  if (pathname === '/') return true;
+  for (const p of PUBLIC_PREFIXES) {
+    if (pathname === p || pathname.startsWith(p + (p.endsWith('/') ? '' : '/'))) {
+      return true;
+    }
+    if (p.endsWith('/') && pathname.startsWith(p)) return true;
+  }
+  return false;
+}
+
 // This function can be marked `async` if using `await` inside
 export async function proxy(request: NextRequest) {
   const nextUrl = request.nextUrl;
@@ -86,8 +113,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/auth/login', nextUrl.href));
   }
 
+  // Already signed in but bouncing through /auth/login → straight to app.
+  // Honoured ?stay=1 (the stale-cookie redirect uses this to avoid the
+  // bounce-back loop) and ?error= (so OAuth failures still display).
+  if (
+    authCookie &&
+    nextUrl.pathname === '/auth/login' &&
+    !nextUrl.searchParams.get('error') &&
+    !nextUrl.searchParams.get('stay')
+  ) {
+    return NextResponse.redirect(
+      new URL('/creator/research/profile', nextUrl.href)
+    );
+  }
+
   const org = nextUrl.searchParams.get('org');
-  const url = new URL(nextUrl).search;
 
   // /auth/* is now the canonical entry: render the Illuminati OAuth landing.
   // (Previously this proxy short-circuited all /auth visits to / for a dev
@@ -123,6 +163,15 @@ export async function proxy(request: NextRequest) {
     }
     if (nextUrl.pathname === '/') {
       return NextResponse.redirect(new URL(`/home`, nextUrl.href));
+    }
+
+    // Auth-gate for every page that isn't explicitly public. Unauthenticated
+    // browsers go to /auth/login with the original destination preserved so
+    // we can bounce them back after sign-in.
+    if (!authCookie && !isPublicPath(nextUrl.pathname)) {
+      const loginUrl = new URL('/auth/login', nextUrl.href);
+      loginUrl.searchParams.set('next', nextUrl.pathname + nextUrl.search);
+      return NextResponse.redirect(loginUrl);
     }
 
     return topResponse;
