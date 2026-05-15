@@ -230,6 +230,52 @@ export function listGmailTemplates() {
   return SAMPLE_TEMPLATES;
 }
 
+/**
+ * Send a brand-new email (not a thread reply). Used by the Payments page's
+ * "Send reminder" action. Returns true on success, false if Google isn't
+ * connected or the send call errored — callers should surface a user-visible
+ * message accordingly.
+ */
+export async function sendGmailEmail(
+  orgId: string,
+  args: { to: string; subject: string; body: string }
+): Promise<boolean> {
+  const conn = await getGoogleTokenForOrg(orgId);
+  if (!conn) return false;
+
+  const raw = [
+    `To: ${args.to}`,
+    `Subject: ${args.subject}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    '',
+    args.body,
+  ].join('\r\n');
+  const encoded = Buffer.from(raw, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+
+  try {
+    const res = await fetch(`${GMAIL_BASE}/messages/send`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${conn.token}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ raw: encoded }),
+    });
+    if (!res.ok) {
+      console.warn(`Gmail send (fresh) failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error(`Gmail send (fresh) crashed: ${(e as Error).message}`);
+    return false;
+  }
+}
+
 // =========================================================================
 // helpers
 // =========================================================================

@@ -1,480 +1,712 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Calendar as CalendarIcon,
-  Plus,
+  CalendarClock,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
   Loader2,
-  Send,
-  Trash2,
-  Sparkles,
   Phone,
-  AlarmClock,
-  FileSignature,
+  Plus,
+  X,
+  Briefcase,
 } from 'lucide-react';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
-import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
-import { Modal } from '@gitroom/frontend/components/shadcn/ui/modal';
 import { Input } from '@gitroom/frontend/components/shadcn/ui/input';
-import {
-  useCalendarEvents,
-  useInfluencers,
-  useManagerMutations,
-  useScheduledPosts,
-  type CalendarEventRow,
-  type Platform,
-  type PostKind,
-} from '@gitroom/frontend/hooks/manager';
+import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
+import { useManagerMutations } from '@gitroom/frontend/hooks/manager';
+import { useSchedule } from '@gitroom/frontend/hooks/creator-data';
 import { cn } from '@gitroom/frontend/lib/utils';
 
-const kindIcon: Record<CalendarEventRow['kind'], React.ComponentType<{ className?: string }>> = {
-  BRAND_CALL: Phone,
-  POST_SCHEDULED: Send,
-  DEAL_DEADLINE: AlarmClock,
-  CONTRACT_EXPIRES: FileSignature,
-};
-const kindTone: Record<CalendarEventRow['kind'], string> = {
-  BRAND_CALL: 'bg-purple-50 text-purple-700',
-  POST_SCHEDULED: 'bg-blue-50 text-blue-700',
-  DEAL_DEADLINE: 'bg-amber-50 text-amber-700',
-  CONTRACT_EXPIRES: 'bg-red-50 text-red-700',
-};
-const platformLabel: Record<Platform, string> = {
-  instagram: 'Instagram',
-  tiktok: 'TikTok',
-  youtube: 'YouTube',
-  linkedin: 'LinkedIn',
-  x: 'X',
-};
+// ---------------------------------------------------------------------------
+// Reuses the unified /creator/schedule aggregation — same data sources
+// (scheduled posts, Google Calendar events, deal deadlines), same window
+// padding, same payload shape — so Manager + Creator stay in lockstep.
+// ---------------------------------------------------------------------------
 
-const fmtDate = (s: string) => {
-  const d = new Date(s);
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
+type EntryKind = 'POST' | 'EVENT' | 'DEADLINE';
+
+interface Entry {
+  id: string;
+  kind: EntryKind;
+  title: string;
+  startsAt: Date;
+  status?: string;
+  brand?: string;
+  offer?: number;
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const isSameDay = (a: Date, b: Date) =>
+  a.getFullYear() === b.getFullYear() &&
+  a.getMonth() === b.getMonth() &&
+  a.getDate() === b.getDate();
+
+const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+
+function buildMonthGrid(cursor: Date): Date[] {
+  const first = startOfMonth(cursor);
+  const start = new Date(first);
+  start.setDate(first.getDate() - first.getDay());
+  return Array.from({ length: 42 }, (_, i) => {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    return d;
   });
+}
+
+const ymdLocal = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 };
 
-export default function SchedulePage() {
-  const { data: events, isLoading: loadingEvents } = useCalendarEvents();
-  const { data: posts, isLoading: loadingPosts } = useScheduledPosts();
-  const { data: influencers } = useInfluencers();
-  const { deleteScheduledPost, deleteCalendarEvent } = useManagerMutations();
-  const [postModalOpen, setPostModalOpen] = useState(false);
-  const [eventModalOpen, setEventModalOpen] = useState(false);
+const fmtTime = (d: Date) =>
+  d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const fmtDayLong = (d: Date) =>
+  d.toLocaleDateString([], {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+
+export default function ManagerSchedulePage() {
+  const [cursor, setCursor] = useState<Date>(() => new Date());
+  const [selectedDay, setSelectedDay] = useState<Date | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [initialDate, setInitialDate] = useState<Date | null>(null);
+
+  const today = useMemo(() => {
+    const t = new Date();
+    t.setHours(0, 0, 0, 0);
+    return t;
+  }, []);
+
+  const grid = useMemo(() => buildMonthGrid(cursor), [cursor]);
+  const fromYmd = ymdLocal(grid[0]);
+  const toYmd = ymdLocal(grid[grid.length - 1]);
+  const { data, isLoading, mutate } = useSchedule(fromYmd, toYmd);
+
+  const entries: Entry[] = useMemo(() => {
+    if (!data) return [];
+    const merged: Entry[] = [];
+    for (const p of data.posts ?? []) {
+      merged.push({
+        id: `post-${p.id}`,
+        kind: 'POST',
+        title: p.caption.slice(0, 120) || '(no caption)',
+        startsAt: new Date(p.scheduledAt),
+        status: p.status,
+      });
+    }
+    for (const e of data.events ?? []) {
+      merged.push({
+        id: `event-${e.id}`,
+        kind: 'EVENT',
+        title: e.title || '(untitled)',
+        startsAt: new Date(e.startsAt),
+      });
+    }
+    for (const d of data.deadlines ?? []) {
+      if (!d.deadline) continue;
+      merged.push({
+        id: `deal-${d.id}`,
+        kind: 'DEADLINE',
+        title: `${d.brand} deadline`,
+        startsAt: new Date(d.deadline),
+        brand: d.brand,
+        offer: d.offer,
+      });
+    }
+    merged.sort((a, b) => +a.startsAt - +b.startsAt);
+    return merged;
+  }, [data]);
+
+  const entriesByDay = useMemo(() => {
+    const map = new Map<string, Entry[]>();
+    for (const e of entries) {
+      const key = ymdLocal(e.startsAt);
+      const list = map.get(key) ?? [];
+      list.push(e);
+      map.set(key, list);
+    }
+    return map;
+  }, [entries]);
+
+  const goMonth = useCallback((delta: -1 | 1) => {
+    setCursor((c) => {
+      const next = new Date(c);
+      next.setDate(1);
+      next.setMonth(next.getMonth() + delta);
+      return next;
+    });
+    setSelectedDay(null);
+  }, []);
+
+  // Swipe gestures, identical pattern to the creator calendar.
+  const touchRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY, t: Date.now() };
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const start = touchRef.current;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    const dt = Date.now() - start.t;
+    if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && dt < 600) {
+      goMonth(dx > 0 ? -1 : 1);
+    }
+    touchRef.current = null;
+  };
+
+  const dayEntries = useMemo(() => {
+    if (!selectedDay) return [];
+    return entries
+      .filter((e) => isSameDay(e.startsAt, selectedDay))
+      .sort((a, b) => +a.startsAt - +b.startsAt);
+  }, [selectedDay, entries]);
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-col gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-8 lg:py-5">
-        <div>
-          <div className="text-lg font-semibold text-gray-900">Schedule</div>
-          <div className="text-xs text-gray-500">
-            Brand calls, post drops, and deadlines in one timeline
+      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
+        <div className="flex items-start justify-between gap-2 px-4 py-3 lg:px-8 lg:py-5">
+          <div className="min-w-0">
+            <div className="text-lg font-semibold text-gray-900">Schedule</div>
+            <div className="truncate text-xs text-gray-500">
+              {isLoading
+                ? 'Loading…'
+                : `${entries.filter((e) => e.kind === 'POST').length} posts · ${entries.filter((e) => e.kind === 'EVENT').length} events · ${entries.filter((e) => e.kind === 'DEADLINE').length} deadlines`}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" className="h-11" onClick={() => setEventModalOpen(true)}>
-            <CalendarIcon className="h-4 w-4" /> New event
-          </Button>
           <Button
             className="h-11"
-            onClick={() => setPostModalOpen(true)}
-            disabled={(influencers?.length ?? 0) === 0}
+            onClick={() => {
+              setInitialDate(selectedDay ?? new Date());
+              setAddOpen(true);
+            }}
           >
-            <Plus className="h-4 w-4" /> Schedule post
+            <Plus className="h-4 w-4" /> Add
           </Button>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 px-4 pb-3 lg:px-8">
+          <button
+            onClick={() => goMonth(-1)}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+            aria-label="Previous month"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div className="text-sm font-semibold text-gray-900">
+            {MONTHS[cursor.getMonth()]} {cursor.getFullYear()}
+          </div>
+          <button
+            onClick={() => goMonth(1)}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+            aria-label="Next month"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
-        <div className="rounded-2xl border border-purple-200 bg-purple-50/40 p-3 text-xs text-purple-900">
-          <Sparkles className="mr-1 inline h-3 w-3" />
-          Posts are routed through a mock publishing adapter. Wire your Ayrshare key under Settings → Integrations to enable multi-platform publishing for real.
+      <div
+        className="flex-1 overflow-y-auto px-2 pb-24 lg:px-8 lg:py-6"
+        onTouchStart={onTouchStart}
+        onTouchEnd={onTouchEnd}
+      >
+        <div className="mx-2 mb-2 mt-3 flex flex-wrap items-center gap-3 text-[11px] text-gray-500 lg:mx-0">
+          <LegendDot color="bg-purple-500" label="Content post" />
+          <LegendDot color="bg-amber-500" label="Deal deadline" />
+          <LegendDot color="bg-blue-500" label="Calendar event" />
         </div>
 
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <section>
-            <h2 className="mb-2 text-sm font-semibold text-gray-900">Upcoming events</h2>
-            {loadingEvents && !events ? (
-              <div className="flex items-center justify-center rounded-2xl border border-gray-200 bg-white py-8 text-sm text-gray-400">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
-              </div>
-            ) : (events ?? []).length === 0 ? (
-              <EmptyBox text="No upcoming events. Add a brand call or sync your Google Calendar." />
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {(events ?? []).map((ev) => {
-                  const Icon = kindIcon[ev.kind];
-                  return (
-                    <li
-                      key={ev.id}
-                      className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
-                    >
-                      <div className={cn('flex h-10 w-10 shrink-0 items-center justify-center rounded-xl', kindTone[ev.kind])}>
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-gray-900">{ev.title}</div>
-                        <div className="text-xs text-gray-500">{fmtDate(ev.startsAt)}</div>
-                        {ev.description && (
-                          <div className="mt-1 text-xs text-gray-600">{ev.description}</div>
-                        )}
-                      </div>
-                      <button
-                        onClick={async () => {
-                          if (!confirm(`Delete event "${ev.title}"?`)) return;
-                          try {
-                            await deleteCalendarEvent(ev.id);
-                          } catch (e) {
-                            alert((e as Error).message);
-                          }
-                        }}
-                        className="rounded-lg p-1 text-gray-300 hover:bg-red-50 hover:text-red-600"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
+        <MonthGrid
+          grid={grid}
+          cursorMonth={cursor.getMonth()}
+          today={today}
+          selected={selectedDay}
+          entriesByDay={entriesByDay}
+          loading={isLoading}
+          onSelect={setSelectedDay}
+        />
 
-          <section>
-            <h2 className="mb-2 text-sm font-semibold text-gray-900">Scheduled posts</h2>
-            {loadingPosts && !posts ? (
-              <div className="flex items-center justify-center rounded-2xl border border-gray-200 bg-white py-8 text-sm text-gray-400">
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading…
-              </div>
-            ) : (posts ?? []).length === 0 ? (
-              <EmptyBox text="No scheduled posts yet. Click 'Schedule post' to draft one for any creator." />
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {(posts ?? []).map((p) => (
-                  <li
-                    key={p.id}
-                    className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium text-gray-900">
-                          {p.influencerName} · {p.kind.charAt(0) + p.kind.slice(1).toLowerCase()}
-                        </div>
-                        <div className="text-xs text-gray-500">{fmtDate(p.scheduledAt)}</div>
-                        <p className="mt-2 line-clamp-2 text-xs text-gray-700">{p.caption}</p>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {p.platforms.map((pl) => (
-                            <Badge key={pl} variant="outline">
-                              {platformLabel[pl]}
-                            </Badge>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="flex flex-col items-end gap-1">
-                        <Badge variant={p.status === 'PUBLISHED' ? 'success' : p.status === 'FAILED' ? 'destructive' : 'default'}>
-                          {p.status}
-                        </Badge>
-                        <button
-                          onClick={async () => {
-                            if (!confirm('Delete scheduled post?')) return;
-                            try {
-                              await deleteScheduledPost(p.id);
-                            } catch (e) {
-                              alert((e as Error).message);
-                            }
-                          }}
-                          className="rounded-lg p-1 text-gray-300 hover:bg-red-50 hover:text-red-600"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        </div>
+        <UpcomingList entries={entries.filter((e) => +e.startsAt >= +today).slice(0, 6)} />
       </div>
 
-      <SchedulePostModal
-        open={postModalOpen}
-        onClose={() => setPostModalOpen(false)}
-        influencers={influencers ?? []}
-      />
-      <CreateEventModal open={eventModalOpen} onClose={() => setEventModalOpen(false)} />
+      {selectedDay && (
+        <DaySheet
+          day={selectedDay}
+          entries={dayEntries}
+          onClose={() => setSelectedDay(null)}
+          onAdd={() => {
+            setInitialDate(selectedDay);
+            setAddOpen(true);
+          }}
+        />
+      )}
+
+      {addOpen && (
+        <AddEventSheet
+          initialDate={initialDate ?? new Date()}
+          onClose={() => setAddOpen(false)}
+          onCreated={async () => {
+            setAddOpen(false);
+            await mutate();
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function EmptyBox({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center text-xs text-gray-500">
-      {text}
-    </div>
-  );
-}
-
-function SchedulePostModal({
-  open,
-  onClose,
-  influencers,
+function MonthGrid({
+  grid,
+  cursorMonth,
+  today,
+  selected,
+  entriesByDay,
+  loading,
+  onSelect,
 }: {
-  open: boolean;
-  onClose: () => void;
-  influencers: { id: string; name: string }[];
+  grid: Date[];
+  cursorMonth: number;
+  today: Date;
+  selected: Date | null;
+  entriesByDay: Map<string, Entry[]>;
+  loading: boolean;
+  onSelect: (d: Date) => void;
 }) {
-  const { schedulePost } = useManagerMutations();
-  const [form, setForm] = useState({
-    influencerId: '',
-    caption: '',
-    kind: 'REEL' as PostKind,
-    platforms: ['instagram'] as Platform[],
-    scheduledAt: '',
-  });
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-1 lg:p-3">
+      <div className="grid grid-cols-7 gap-0.5 px-1 pb-1 pt-2 lg:gap-1 lg:px-0 lg:pb-2">
+        {WEEKDAYS.map((w) => (
+          <div
+            key={w}
+            className="text-center text-[10px] font-semibold uppercase tracking-wider text-gray-500"
+          >
+            {w}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-0.5 lg:gap-1">
+        {grid.map((d) => {
+          const inMonth = d.getMonth() === cursorMonth;
+          const isToday = isSameDay(d, today);
+          const isSelected = selected ? isSameDay(d, selected) : false;
+          const dayEntries = entriesByDay.get(ymdLocal(d)) ?? [];
+          const hasPost = dayEntries.some((e) => e.kind === 'POST');
+          const hasEvent = dayEntries.some((e) => e.kind === 'EVENT');
+          const hasDeadline = dayEntries.some((e) => e.kind === 'DEADLINE');
+          return (
+            <button
+              key={+d}
+              type="button"
+              onClick={() => onSelect(d)}
+              className={cn(
+                'group relative flex min-h-[56px] flex-col items-center justify-start gap-1 rounded-lg border px-1 py-1.5 text-center transition-colors lg:min-h-[80px] lg:py-2',
+                isSelected
+                  ? 'border-purple-500 bg-purple-50 ring-1 ring-purple-300'
+                  : isToday
+                  ? 'border-[#F59E0B] bg-amber-50/60'
+                  : 'border-gray-100 bg-white hover:border-gray-200',
+                !inMonth && 'opacity-40'
+              )}
+              aria-label={`${fmtDayLong(d)}${
+                dayEntries.length ? ` — ${dayEntries.length} item${dayEntries.length === 1 ? '' : 's'}` : ''
+              }`}
+            >
+              <span
+                className={cn(
+                  'text-[13px] font-semibold leading-none lg:text-sm',
+                  isToday ? 'text-[#B45309]' : isSelected ? 'text-purple-700' : 'text-gray-900'
+                )}
+              >
+                {d.getDate()}
+              </span>
+              <div className="flex gap-0.5">
+                {hasPost && <Dot color="bg-purple-500" />}
+                {hasDeadline && <Dot color="bg-amber-500" />}
+                {hasEvent && <Dot color="bg-blue-500" />}
+              </div>
+              {inMonth && dayEntries.length > 0 && (
+                <div className="hidden w-full overflow-hidden text-[10px] leading-tight text-gray-600 lg:block">
+                  <div className="truncate">{dayEntries[0].title}</div>
+                  {dayEntries.length > 1 && (
+                    <div className="text-[9px] text-gray-400">+{dayEntries.length - 1} more</div>
+                  )}
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {loading && (
+        <div className="mt-2 flex items-center justify-center gap-1.5 py-1 text-[11px] text-gray-400">
+          <Loader2 className="h-3 w-3 animate-spin" /> Loading…
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Dot({ color }: { color: string }) {
+  return <span className={cn('block h-1.5 w-1.5 rounded-full', color)} />;
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn('block h-1.5 w-1.5 rounded-full', color)} />
+      {label}
+    </span>
+  );
+}
+
+function UpcomingList({ entries }: { entries: Entry[] }) {
+  if (entries.length === 0) {
+    return (
+      <div className="mx-2 mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500 lg:mx-0">
+        Nothing scheduled in the next few weeks.
+      </div>
+    );
+  }
+  return (
+    <div className="mx-2 mt-5 lg:mx-0">
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">
+        Up next
+      </h2>
+      <ul className="flex flex-col gap-2">
+        {entries.map((e) => (
+          <li key={e.id}>
+            <EntryRow entry={e} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function EntryRow({ entry }: { entry: Entry }) {
+  const accent =
+    entry.kind === 'POST'
+      ? 'border-purple-200 bg-purple-50/50'
+      : entry.kind === 'DEADLINE'
+      ? 'border-amber-200 bg-amber-50/50'
+      : 'border-blue-200 bg-blue-50/50';
+  const Icon =
+    entry.kind === 'POST'
+      ? CalendarClock
+      : entry.kind === 'DEADLINE'
+      ? Briefcase
+      : CalendarDays;
+  const iconTone =
+    entry.kind === 'POST'
+      ? 'bg-purple-100 text-purple-700'
+      : entry.kind === 'DEADLINE'
+      ? 'bg-amber-100 text-amber-700'
+      : 'bg-blue-100 text-blue-700';
+  return (
+    <div className={cn('flex items-start gap-3 rounded-2xl border p-3', accent)}>
+      <div className={cn('mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full', iconTone)}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold text-gray-900">{entry.title}</div>
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" /> {fmtTime(entry.startsAt)}
+          </span>
+          {entry.kind === 'DEADLINE' && typeof entry.offer === 'number' && entry.offer > 0 && (
+            <>
+              <span>·</span>
+              <span>₹{entry.offer.toLocaleString()}</span>
+            </>
+          )}
+          {entry.kind === 'POST' && entry.status && (
+            <>
+              <span>·</span>
+              <span className="capitalize">{entry.status.toLowerCase()}</span>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DaySheet({
+  day,
+  entries,
+  onClose,
+  onAdd,
+}: {
+  day: Date;
+  entries: Entry[];
+  onClose: () => void;
+  onAdd: () => void;
+}) {
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 backdrop-blur-sm lg:items-center"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+    >
+      <div
+        className="relative flex max-h-[80vh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl lg:max-w-lg lg:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-gray-900">{fmtDayLong(day)}</div>
+            <div className="text-[11px] text-gray-500">
+              {entries.length} item{entries.length === 1 ? '' : 's'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 py-3">
+          {entries.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
+              Nothing on this day yet.
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {entries.map((e) => (
+                <li key={e.id}>
+                  <EntryRow entry={e} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="border-t border-gray-100 p-3">
+          <Button className="h-11 w-full" onClick={onAdd}>
+            <Plus className="h-4 w-4" /> Add event on this day
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add event sheet — creates a Google Calendar entry via /manager/schedule/events.
+// Useful kinds: BRAND_CALL (a meeting), DEAL_DEADLINE (manual reminder), or
+// generic event. Posts come in via the Schedule (Creator) flow.
+// ---------------------------------------------------------------------------
+
+const KIND_OPTIONS: Array<{
+  id: 'BRAND_CALL' | 'DEAL_DEADLINE' | 'CONTRACT_EXPIRES';
+  label: string;
+}> = [
+  { id: 'BRAND_CALL', label: 'Meeting / call' },
+  { id: 'DEAL_DEADLINE', label: 'Deal deadline' },
+  { id: 'CONTRACT_EXPIRES', label: 'Contract expiry' },
+];
+
+function AddEventSheet({
+  initialDate,
+  onClose,
+  onCreated,
+}: {
+  initialDate: Date;
+  onClose: () => void;
+  onCreated: () => Promise<void> | void;
+}) {
+  const { createCalendarEvent } = useManagerMutations();
+  const [title, setTitle] = useState('');
+  const [kind, setKind] = useState<(typeof KIND_OPTIONS)[number]['id']>('BRAND_CALL');
+  const [date, setDate] = useState<string>(ymdLocal(initialDate));
+  const [time, setTime] = useState<string>('15:00');
+  const [duration, setDuration] = useState<number>(30);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (open && !form.influencerId && influencers.length > 0) {
-      setForm((f) => ({ ...f, influencerId: influencers[0].id }));
-    }
-  }, [open, influencers]);
-
-  const togglePlatform = (p: Platform) => {
-    setForm((f) => ({
-      ...f,
-      platforms: f.platforms.includes(p)
-        ? f.platforms.filter((x) => x !== p)
-        : [...f.platforms, p],
-    }));
-  };
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
 
   const submit = async () => {
-    if (!form.influencerId) return setError('Pick an influencer');
-    if (!form.caption.trim()) return setError('Caption is required');
-    if (form.platforms.length === 0) return setError('Pick at least one platform');
-    if (!form.scheduledAt) return setError('Pick a scheduled time');
-    setSubmitting(true);
-    setError(null);
-    try {
-      const inf = influencers.find((i) => i.id === form.influencerId);
-      await schedulePost({
-        influencerId: form.influencerId,
-        influencerName: inf?.name ?? 'Unknown',
-        caption: form.caption.trim(),
-        kind: form.kind,
-        platforms: form.platforms,
-        scheduledAt: new Date(form.scheduledAt).toISOString(),
-      });
-      setForm({ influencerId: '', caption: '', kind: 'REEL', platforms: ['instagram'], scheduledAt: '' });
-      onClose();
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSubmitting(false);
+    if (submitting) return;
+    if (!title.trim()) {
+      setError('Title is required');
+      return;
     }
-  };
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Schedule post"
-      description="Drafts a multi-platform post (mock until Ayrshare key is added)."
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} className="h-11">
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={submitting} className="h-11">
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Schedule
-          </Button>
-        </div>
-      }
-    >
-      <div className="flex flex-col gap-3">
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
-        )}
-        <FieldGroup label="Influencer *">
-          <select
-            value={form.influencerId}
-            onChange={(e) => setForm((f) => ({ ...f, influencerId: e.target.value }))}
-            className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-          >
-            {influencers.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.name}
-              </option>
-            ))}
-          </select>
-        </FieldGroup>
-        <div className="grid grid-cols-2 gap-3">
-          <FieldGroup label="Type">
-            <select
-              value={form.kind}
-              onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as PostKind }))}
-              className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-            >
-              <option value="IMAGE">Image</option>
-              <option value="CAROUSEL">Carousel</option>
-              <option value="REEL">Reel</option>
-              <option value="STORY">Story</option>
-            </select>
-          </FieldGroup>
-          <FieldGroup label="Schedule for *">
-            <Input
-              type="datetime-local"
-              value={form.scheduledAt}
-              onChange={(e) => setForm((f) => ({ ...f, scheduledAt: e.target.value }))}
-            />
-          </FieldGroup>
-        </div>
-        <FieldGroup label="Platforms *">
-          <div className="flex flex-wrap gap-2">
-            {(['instagram', 'tiktok', 'youtube', 'linkedin', 'x'] as Platform[]).map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => togglePlatform(p)}
-                className={cn(
-                  'rounded-full border px-3 py-1 text-xs font-medium transition-colors min-h-[36px]',
-                  form.platforms.includes(p)
-                    ? 'border-purple-300 bg-purple-100 text-purple-700'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-purple-200'
-                )}
-              >
-                {platformLabel[p]}
-              </button>
-            ))}
-          </div>
-        </FieldGroup>
-        <FieldGroup label="Caption *">
-          <textarea
-            value={form.caption}
-            onChange={(e) => setForm((f) => ({ ...f, caption: e.target.value }))}
-            placeholder="What's the post about?"
-            className="min-h-[100px] resize-y rounded-lg border border-gray-200 bg-white p-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-          />
-        </FieldGroup>
-      </div>
-    </Modal>
-  );
-}
-
-function CreateEventModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { createCalendarEvent } = useManagerMutations();
-  const [form, setForm] = useState({
-    title: '',
-    startsAt: '',
-    endsAt: '',
-    kind: 'BRAND_CALL' as CalendarEventRow['kind'],
-    description: '',
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const submit = async () => {
-    if (!form.title.trim()) return setError('Title is required');
-    if (!form.startsAt) return setError('Start time is required');
-    if (!form.endsAt) return setError('End time is required');
+    const [y, m, dd] = date.split('-').map(Number);
+    const [hh, mm] = time.split(':').map(Number);
+    const start = new Date(y, (m || 1) - 1, dd || 1, hh || 0, mm || 0);
+    const end = new Date(start.getTime() + Math.max(duration, 5) * 60_000);
     setSubmitting(true);
     setError(null);
     try {
       await createCalendarEvent({
-        title: form.title.trim(),
-        startsAt: new Date(form.startsAt).toISOString(),
-        endsAt: new Date(form.endsAt).toISOString(),
-        kind: form.kind,
-        description: form.description.trim() || undefined,
+        title: title.trim(),
+        startsAt: start.toISOString(),
+        endsAt: end.toISOString(),
+        kind,
       });
-      setForm({ title: '', startsAt: '', endsAt: '', kind: 'BRAND_CALL', description: '' });
-      onClose();
+      await onCreated();
     } catch (e) {
       setError((e as Error).message);
-    } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="New event"
-      description="Brand call, deadline, or any reminder."
-      footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose} className="h-11">
-            Cancel
-          </Button>
-          <Button onClick={submit} disabled={submitting} className="h-11">
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Create
-          </Button>
-        </div>
-      }
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm lg:items-center"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
-      <div className="flex flex-col gap-3">
-        {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>
-        )}
-        <FieldGroup label="Title *">
-          <Input
-            value={form.title}
-            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-            placeholder="Bloom & Co. kickoff call"
-          />
-        </FieldGroup>
-        <FieldGroup label="Type">
-          <select
-            value={form.kind}
-            onChange={(e) => setForm((f) => ({ ...f, kind: e.target.value as CalendarEventRow['kind'] }))}
-            className="h-10 w-full rounded-lg border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
+      <div
+        className="relative flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl lg:max-w-md lg:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+          <div className="text-sm font-semibold text-gray-900">Add to calendar</div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+            aria-label="Close"
           >
-            <option value="BRAND_CALL">Brand call</option>
-            <option value="POST_SCHEDULED">Post scheduled</option>
-            <option value="DEAL_DEADLINE">Deal deadline</option>
-            <option value="CONTRACT_EXPIRES">Contract expires</option>
-          </select>
-        </FieldGroup>
-        <div className="grid grid-cols-2 gap-3">
-          <FieldGroup label="Start *">
-            <Input
-              type="datetime-local"
-              value={form.startsAt}
-              onChange={(e) => setForm((f) => ({ ...f, startsAt: e.target.value }))}
-            />
-          </FieldGroup>
-          <FieldGroup label="End *">
-            <Input
-              type="datetime-local"
-              value={form.endsAt}
-              onChange={(e) => setForm((f) => ({ ...f, endsAt: e.target.value }))}
-            />
-          </FieldGroup>
+            <X className="h-5 w-5" />
+          </button>
         </div>
-        <FieldGroup label="Notes">
-          <Input
-            value={form.description}
-            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-            placeholder="Discuss campaign scope"
-          />
-        </FieldGroup>
+
+        <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex flex-col gap-3">
+            <Field label="Title">
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Sync with brand team"
+              />
+            </Field>
+            <Field label="Type">
+              <div className="flex flex-wrap gap-1.5">
+                {KIND_OPTIONS.map((k) => (
+                  <button
+                    key={k.id}
+                    type="button"
+                    onClick={() => setKind(k.id)}
+                    className={cn(
+                      'h-9 rounded-full border px-3 text-xs font-semibold transition-colors',
+                      kind === k.id
+                        ? 'border-purple-600 bg-purple-600 text-white'
+                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                    )}
+                  >
+                    {k.label}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date">
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
+                />
+              </Field>
+              <Field label="Time">
+                <input
+                  type="time"
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                  className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
+                />
+              </Field>
+            </div>
+            <Field label="Duration">
+              <div className="flex flex-wrap gap-1.5">
+                {[15, 30, 60, 120].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setDuration(m)}
+                    className={cn(
+                      'h-9 rounded-full border px-3 text-xs font-semibold transition-colors',
+                      duration === m
+                        ? 'border-purple-600 bg-purple-600 text-white'
+                        : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                    )}
+                  >
+                    {m} min
+                  </button>
+                ))}
+              </div>
+            </Field>
+            {error && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="border-t border-gray-100 p-3">
+          <Button className="h-12 w-full" onClick={submit} disabled={submitting}>
+            {submitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Adding…
+              </>
+            ) : (
+              <>
+                <Phone className="h-4 w-4" /> Add to Google Calendar
+              </>
+            )}
+          </Button>
+        </div>
       </div>
-    </Modal>
+    </div>
   );
 }
 
-function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1.5 text-xs font-medium text-gray-700">
-      <span>{label}</span>
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+        {label}
+      </span>
       {children}
     </label>
   );

@@ -164,6 +164,62 @@ export const useDeals = () => {
   return useSWR<DealRow[]>('/manager/deals', load);
 };
 
+export interface DealAdvice {
+  score: number;
+  verdict: 'STRONG' | 'FAIR' | 'WEAK' | 'WALK_AWAY';
+  counterOffer: number | null;
+  counterReasoning: string;
+  redFlags: string[];
+  marketBenchmark: string;
+  negotiationPoints: string[];
+  partial?: boolean;
+}
+
+export interface ReminderDraft {
+  subject: string;
+  body: string;
+  tone: 'friendly' | 'firm' | 'final';
+  partial?: boolean;
+}
+
+export interface RateCard {
+  reelRate: number | null;
+  storyRate: number | null;
+  carouselRate: number | null;
+  ugcRate: number | null;
+  brandIntegRate: number | null;
+  exclusivityRate: number | null;
+  currency: string;
+  notes: string | null;
+  updatedAt: string | null;
+}
+
+export interface ManagerProfile {
+  name: string | null;
+  lastName: string | null;
+  email: string;
+  companyName: string;
+  connections: {
+    google: { connected: boolean; email: string | null; connectedAt: string | null };
+    instagram: {
+      connected: boolean;
+      handle: string | null;
+      followers: number | null;
+      connectedAt: string | null;
+    };
+  };
+}
+
+export const useRateCard = () => {
+  const load = useJsonLoader();
+  return useSWR<RateCard>('/manager/settings/rate-card', load);
+};
+
+export const useManagerProfile = () => {
+  const load = useJsonLoader();
+  return useSWR<ManagerProfile>('/manager/settings/profile', load);
+};
+
 export const useDealSummary = () => {
   const load = useJsonLoader();
   return useSWR<{
@@ -328,14 +384,53 @@ export const useManagerMutations = () => {
     paymentAction: useCallback(
       async (
         id: string,
-        action: 'mark_invoiced' | 'mark_paid' | 'send_reminder'
+        action: 'mark_invoiced' | 'mark_paid' | 'send_reminder',
+        extra?: { subject?: string; body?: string }
       ) => {
         const result = await send(`/manager/payments/${id}/action`, 'POST', {
           action,
+          ...extra,
         });
         globalMutate('/manager/payments');
         globalMutate('/manager/payments/summary');
         return result;
+      },
+      [send]
+    ),
+    draftPaymentReminder: useCallback(
+      async (id: string): Promise<ReminderDraft> => {
+        return (await send(
+          `/manager/payments/${id}/draft-reminder`,
+          'POST'
+        )) as ReminderDraft;
+      },
+      [send]
+    ),
+    fetchDealAdvice: useCallback(
+      async (id: string): Promise<DealAdvice> => {
+        return (await send(`/manager/deals/${id}/advisor`, 'POST')) as DealAdvice;
+      },
+      [send]
+    ),
+    saveRateCard: useCallback(
+      async (body: Partial<RateCard> & { bundleRate?: number | null; postRate?: number | null }) => {
+        const updated = await send('/manager/settings/rate-card', 'PUT', body);
+        globalMutate('/manager/settings/rate-card');
+        return updated as RateCard;
+      },
+      [send]
+    ),
+    saveProfile: useCallback(
+      async (body: { name?: string; lastName?: string; companyName?: string }) => {
+        await send('/manager/settings/profile', 'PUT', body);
+        globalMutate('/manager/settings/profile');
+      },
+      [send]
+    ),
+    disconnectProvider: useCallback(
+      async (provider: 'google' | 'instagram') => {
+        await send(`/manager/settings/disconnect/${provider}`, 'POST');
+        globalMutate('/manager/settings/profile');
       },
       [send]
     ),

@@ -1,19 +1,26 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2 } from 'lucide-react';
+import { User2, Users, Bell, Plug, ChevronRight, Mail, Slack, CreditCard, FileSignature, Instagram, CheckCircle2, Loader2, IndianRupee } from 'lucide-react';
 import { Badge } from '@gitroom/frontend/components/shadcn/ui/badge';
 import { Button } from '@gitroom/frontend/components/shadcn/ui/button';
+import { Input } from '@gitroom/frontend/components/shadcn/ui/input';
 import { useFetch } from '@gitroom/helpers/utils/custom.fetch';
 import { useVariables } from '@gitroom/react/helpers/variable.context';
+import {
+  useManagerProfile,
+  useRateCard,
+  useManagerMutations,
+} from '@gitroom/frontend/hooks/manager';
 
-type Section = 'profile' | 'team' | 'notifications' | 'integrations';
+type Section = 'profile' | 'rates' | 'team' | 'notifications' | 'integrations';
 
 const fmtFollowers = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${Math.round(n / 1_000)}k` : `${n}`;
 
 const sections: { key: Section; label: string; description: string; icon: typeof User2 }[] = [
   { key: 'profile', label: 'Profile', description: 'Your name, email and workspace', icon: User2 },
+  { key: 'rates', label: 'Rate card', description: 'Per-deliverable pricing the deal advisor uses', icon: IndianRupee },
   { key: 'team', label: 'Team', description: 'Invite teammates and assign roles', icon: Users },
   { key: 'notifications', label: 'Notifications', description: 'How and when we tell you things', icon: Bell },
   { key: 'integrations', label: 'API connections', description: 'Connect Gmail, Stripe and more', icon: Plug },
@@ -91,38 +98,8 @@ export default function SettingsPage() {
           </aside>
 
           <div className="flex flex-col gap-4">
-            {active === 'profile' && (
-              <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
-                <h2 className="text-base font-semibold text-gray-900">Profile</h2>
-                <p className="mt-1 text-xs text-gray-500">Visible to your team and on contracts</p>
-                <div className="mt-5 flex flex-col gap-3">
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-500">Display name</label>
-                    <input
-                      className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                      placeholder="Your name"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-500">Email</label>
-                    <input
-                      className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                      placeholder="you@workspace.com"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-500">Workspace name</label>
-                    <input
-                      className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-                      placeholder="Illuminati HQ"
-                    />
-                  </div>
-                  <div className="flex justify-end">
-                    <Button className="h-11">Save changes</Button>
-                  </div>
-                </div>
-              </section>
-            )}
+            {active === 'profile' && <ProfilePanel />}
+            {active === 'rates' && <RateCardPanel />}
 
             {active === 'team' && (
               <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
@@ -336,5 +313,371 @@ function IntegrationsPanel() {
         </ul>
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Profile panel — wired to /manager/settings/profile. Disconnect buttons hit
+// /manager/settings/disconnect/[provider] which clears the OAuth handles and
+// purges related caches.
+// ---------------------------------------------------------------------------
+
+function ProfilePanel() {
+  const { data, isLoading } = useManagerProfile();
+  const { saveProfile, disconnectProvider } = useManagerMutations();
+  const [draft, setDraft] = useState({ name: '', lastName: '', companyName: '' });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    setDraft({
+      name: data.name ?? '',
+      lastName: data.lastName ?? '',
+      companyName: data.companyName ?? '',
+    });
+  }, [data]);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await saveProfile(draft);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading && !data) {
+    return (
+      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-center gap-2 py-6 text-sm text-gray-500">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading profile…
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-gray-900">Profile</h2>
+      <p className="mt-1 text-xs text-gray-500">Visible to your team and on contracts</p>
+      <div className="mt-5 flex flex-col gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <FormRow label="First name">
+            <Input
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              placeholder="Your name"
+            />
+          </FormRow>
+          <FormRow label="Last name">
+            <Input
+              value={draft.lastName}
+              onChange={(e) => setDraft({ ...draft, lastName: e.target.value })}
+              placeholder="Optional"
+            />
+          </FormRow>
+        </div>
+        <FormRow label="Email (read-only)">
+          <Input value={data?.email ?? ''} readOnly className="bg-gray-50" />
+        </FormRow>
+        <FormRow label="Company / workspace name">
+          <Input
+            value={draft.companyName}
+            onChange={(e) => setDraft({ ...draft, companyName: e.target.value })}
+            placeholder="Your company"
+          />
+        </FormRow>
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+            {error}
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-2">
+          {saved && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Saved
+            </span>
+          )}
+          <Button className="h-11" onClick={save} disabled={saving}>
+            {saving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+              </>
+            ) : (
+              'Save changes'
+            )}
+          </Button>
+        </div>
+      </div>
+
+      <h3 className="mt-8 text-sm font-semibold text-gray-900">Connected accounts</h3>
+      <p className="mt-1 text-xs text-gray-500">
+        Quick disconnect — re-link from API connections to reconnect.
+      </p>
+      <div className="mt-3 flex flex-col gap-2">
+        <ConnectedRow
+          label="Instagram"
+          accent="#E1306C"
+          icon={Instagram}
+          connected={data?.connections.instagram.connected ?? false}
+          detail={
+            data?.connections.instagram.handle
+              ? `${data.connections.instagram.handle}${
+                  data.connections.instagram.followers
+                    ? ` · ${fmtFollowers(data.connections.instagram.followers)} followers`
+                    : ''
+                }`
+              : null
+          }
+          onDisconnect={() => disconnectProvider('instagram')}
+        />
+        <ConnectedRow
+          label="Google · Gmail + Calendar + Drive"
+          accent="#F59E0B"
+          icon={Mail}
+          connected={data?.connections.google.connected ?? false}
+          detail={data?.connections.google.email ?? null}
+          onDisconnect={() => disconnectProvider('google')}
+        />
+      </div>
+    </section>
+  );
+}
+
+function ConnectedRow({
+  label,
+  accent,
+  icon: Icon,
+  connected,
+  detail,
+  onDisconnect,
+}: {
+  label: string;
+  accent: string;
+  icon: typeof Instagram;
+  connected: boolean;
+  detail: string | null;
+  onDisconnect: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-gray-200 p-3">
+      <div
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-white"
+        style={{ backgroundColor: connected ? accent : '#E5E7EB' }}
+      >
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-semibold text-gray-900">{label}</div>
+        <div className="truncate text-xs text-gray-500">
+          {connected ? detail ?? 'Connected' : 'Not connected'}
+        </div>
+      </div>
+      {connected && (
+        <button
+          type="button"
+          onClick={async () => {
+            if (busy) return;
+            if (!confirm(`Disconnect ${label.split(' ')[0]}?`)) return;
+            setBusy(true);
+            try {
+              await onDisconnect();
+            } finally {
+              setBusy(false);
+            }
+          }}
+          className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-rose-300 hover:text-rose-700 disabled:opacity-50"
+          disabled={busy}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Disconnect'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rate Card editor — per-deliverable pricing the AI Deal Advisor uses as the
+// creator's floor. Bundle / Post fields map to brandIntegRate / ugcRate in
+// the DB.
+// ---------------------------------------------------------------------------
+
+function RateCardPanel() {
+  const { data, isLoading } = useRateCard();
+  const { saveRateCard } = useManagerMutations();
+  const [draft, setDraft] = useState({
+    reelRate: '',
+    postRate: '',
+    storyRate: '',
+    carouselRate: '',
+    bundleRate: '',
+    exclusivityRate: '',
+    currency: 'INR',
+    notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    setDraft({
+      reelRate: data.reelRate != null ? String(data.reelRate) : '',
+      postRate: data.ugcRate != null ? String(data.ugcRate) : '',
+      storyRate: data.storyRate != null ? String(data.storyRate) : '',
+      carouselRate: data.carouselRate != null ? String(data.carouselRate) : '',
+      bundleRate: data.brandIntegRate != null ? String(data.brandIntegRate) : '',
+      exclusivityRate: data.exclusivityRate != null ? String(data.exclusivityRate) : '',
+      currency: data.currency ?? 'INR',
+      notes: data.notes ?? '',
+    });
+  }, [data]);
+
+  const save = async () => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      // Empty string → null clears the row's field; numeric strings go as-is
+      // and the server parses them into Decimal.
+      const num = (v: string) => (v.trim() === '' ? null : Number(v));
+      await saveRateCard({
+        reelRate: num(draft.reelRate),
+        postRate: num(draft.postRate),
+        storyRate: num(draft.storyRate),
+        carouselRate: num(draft.carouselRate),
+        bundleRate: num(draft.bundleRate),
+        exclusivityRate: num(draft.exclusivityRate),
+        currency: draft.currency,
+        notes: draft.notes,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading && !data) {
+    return (
+      <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-center gap-2 py-6 text-sm text-gray-500">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading rate card…
+        </div>
+      </section>
+    );
+  }
+
+  const fields: Array<{ key: keyof typeof draft; label: string; hint: string }> = [
+    { key: 'reelRate', label: 'Reel', hint: 'Standard 15-30s reel' },
+    { key: 'postRate', label: 'Post (image)', hint: 'Single in-feed image' },
+    { key: 'storyRate', label: 'Story', hint: 'Per-frame, 24h' },
+    { key: 'carouselRate', label: 'Carousel', hint: 'Multi-slide post' },
+    { key: 'bundleRate', label: 'Bundle deal', hint: 'Reel + post + story' },
+    { key: 'exclusivityRate', label: 'Category exclusivity', hint: 'Extra for category lock' },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-gray-900">Rate card</h2>
+      <p className="mt-1 text-xs text-gray-500">
+        Per-deliverable pricing. The AI deal advisor uses these as your floor when scoring offers.
+      </p>
+
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {fields.map((f) => (
+          <FormRow key={f.key} label={f.label} hint={f.hint}>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-400">
+                {draft.currency === 'USD' ? '$' : draft.currency === 'INR' ? '₹' : draft.currency}
+              </span>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                value={draft[f.key]}
+                onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
+                placeholder="0"
+                className="pl-7"
+              />
+            </div>
+          </FormRow>
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[120px_1fr]">
+        <FormRow label="Currency">
+          <select
+            value={draft.currency}
+            onChange={(e) => setDraft({ ...draft, currency: e.target.value })}
+            className="h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
+          >
+            <option value="INR">INR (₹)</option>
+            <option value="USD">USD ($)</option>
+            <option value="EUR">EUR (€)</option>
+            <option value="GBP">GBP (£)</option>
+          </select>
+        </FormRow>
+        <FormRow label="Notes" hint="Anything brand reps should know">
+          <Input
+            value={draft.notes}
+            onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+            placeholder="e.g. usage rights capped at 90 days unless re-negotiated"
+          />
+        </FormRow>
+      </div>
+
+      {error && (
+        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center justify-end gap-2">
+        {saved && (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5" /> Saved
+          </span>
+        )}
+        <Button className="h-11" onClick={save} disabled={saving}>
+          {saving ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> Saving…
+            </>
+          ) : (
+            'Save rate card'
+          )}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function FormRow({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-gray-700">{label}</span>
+      {children}
+      {hint && <span className="text-[10px] text-gray-400">{hint}</span>}
+    </label>
   );
 }
