@@ -58,27 +58,57 @@ export const LayoutComponent = ({ children }: { children: ReactNode }) => {
   // Feedback icon component attaches Sentry feedback to a top-bar icon when DSN is present
   const searchParams = useSearchParams();
   const load = useCallback(async (path: string) => {
-    return await (await fetch(path)).json();
-  }, []);
+    const res = await fetch(path);
+    // Stale cookie / unauthenticated → bounce to login from the client so
+    // we don't render the app shell with the 401 error envelope in the
+    // user slot (which crashes downstream consumers reading `.current`).
+    if (res.status === 401) {
+      if (
+        typeof window !== 'undefined' &&
+        !window.location.pathname.startsWith('/auth')
+      ) {
+        // Clear any cookies the client can see, then redirect.
+        document.cookie = 'auth=; path=/; max-age=0';
+        document.cookie = 'showorg=; path=/; max-age=0';
+        window.location.href = '/auth/login';
+      }
+      // Throw so SWR sees an error rather than caching the envelope as data.
+      throw new Error('Not authenticated');
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`/user/self ${res.status}: ${text.slice(0, 200)}`);
+    }
+    return res.json();
+  }, [fetch]);
   const { data: user, error: userError, mutate } = useSWR('/user/self', load, {
     revalidateOnFocus: false,
     revalidateOnReconnect: false,
     revalidateIfStale: false,
     refreshWhenOffline: false,
     refreshWhenHidden: false,
-    shouldRetryOnError: true,
+    // Don't retry on 401 — the redirect-to-login above already happened and
+    // we'd otherwise spam a doomed endpoint every 2 seconds.
+    shouldRetryOnError: (err) => err.message !== 'Not authenticated',
     errorRetryInterval: 2000,
   });
 
   if (!user) {
+    // 401 fired the redirect already; render a quiet loader rather than the
+    // backend-down message that would make the auth bounce look like a bug.
+    const notAuthed = userError?.message === 'Not authenticated';
     return (
       <div className="flex min-h-screen w-screen items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-3">
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-purple-200 border-t-purple-600" />
           <div className="text-sm text-gray-500">
-            {userError ? 'Waiting for the API…' : 'Loading workspace…'}
+            {notAuthed
+              ? 'Redirecting to sign in…'
+              : userError
+              ? 'Waiting for the API…'
+              : 'Loading workspace…'}
           </div>
-          {userError && (
+          {userError && !notAuthed && (
             <div className="text-xs text-gray-400">
               Backend at <code className="rounded bg-gray-100 px-1">{backendUrl}</code> is not
               responding yet — will retry automatically.
