@@ -232,6 +232,42 @@ export function useContentIdeas() {
   return useApi<IdeasResponse>('/creator/ideas');
 }
 
+// ---------------------------------------------------------------------------
+// Hashtag research + saved sets.
+// ---------------------------------------------------------------------------
+
+export type HashtagBucket = 'high' | 'medium' | 'low' | 'niche';
+
+export interface HashtagSuggestion {
+  tag: string;
+  bucket: HashtagBucket;
+  estimatedPosts: string;
+  rationale?: string;
+}
+
+export interface HashtagGroups {
+  topic: string;
+  generatedAt: string;
+  high: HashtagSuggestion[];
+  medium: HashtagSuggestion[];
+  low: HashtagSuggestion[];
+  niche: HashtagSuggestion[];
+  frequentlyUsed: string[];
+}
+
+export interface HashtagSet {
+  id: string;
+  name: string;
+  topic: string | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function useHashtagSets() {
+  return useApi<{ sets: HashtagSet[] }>('/creator/hashtags/sets');
+}
+
 // Convenience: trigger a fresh server-side compute (bypasses memoryCache) and
 // then mutate the SWR cache with the result.
 export async function forceRefresh<T>(

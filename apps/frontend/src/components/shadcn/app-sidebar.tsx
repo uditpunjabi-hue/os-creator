@@ -33,6 +33,7 @@ const contentNav: NavSection[] = [
     items: [
       { label: 'My Profile', href: '/creator/research/profile', icon: Search },
       { label: 'Inspiration', href: '/creator/research/competitors', icon: Users },
+      { label: 'Hashtags', href: '/creator/research/hashtags', icon: Hash },
     ],
   },
   {
