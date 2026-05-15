@@ -85,6 +85,7 @@ export async function suggestReply(orgId: string, threadId: string): Promise<Sug
     systemPrompt: SYSTEM_PROMPT,
     userMessage: `Draft three reply options for this brand thread:\n\n${JSON.stringify(payload, null, 2)}`,
     maxTokens: 1500,
+    timeoutMs: 25_000,
   });
   return { threadId, options: parsed.options ?? [] };
 }

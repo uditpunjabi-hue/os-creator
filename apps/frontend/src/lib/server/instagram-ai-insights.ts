@@ -137,7 +137,14 @@ async function regenerate(orgId: string): Promise<AiInsightsResponse> {
       parsed = await callClaude<Omit<AiInsightsResponse, 'connected' | 'generatedAt' | 'partial'>>({
         systemPrompt: SYSTEM_PROMPT,
         userMessage: `Analyze this creator and return the four-category JSON:\n\n${JSON.stringify(userPayload, null, 2)}`,
-        maxTokens: 2000,
+        // 4 categories × ~3 cards × 3 fields = bigger payload than the
+        // default. 3000 tokens leaves headroom so the JSON doesn't get cut
+        // off and trigger a parse fail.
+        maxTokens: 3000,
+        // The default 10s budget was tight for this prompt — Claude
+        // genuinely needs ~15-25s to write 4 grounded analyses. Vercel
+        // function maxDuration is 60s for this route so 40s is safe.
+        timeoutMs: 40_000,
       });
     } catch (e) {
       console.warn(`AI insights generation failed: ${(e as Error).message}`);

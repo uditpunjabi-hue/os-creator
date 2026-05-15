@@ -605,6 +605,10 @@ async function runNarrativeAnalysis(
       systemPrompt: NARRATIVE_SYSTEM,
       userMessage: `Analyse this creator and return the JSON:\n\n${JSON.stringify(payload, null, 2)}`,
       maxTokens: 2400,
+      // The narrative covers ~8 fields and references real numbers; the
+      // default 10s budget was triggering "partial" on legitimate calls.
+      // Vercel route's maxDuration is 60s.
+      timeoutMs: 40_000,
     });
     return { narrative, partial: false };
   } catch (e) {

@@ -64,6 +64,7 @@ export async function draftPaymentReminder(args: DraftArgs): Promise<PaymentRemi
       systemPrompt: SYSTEM,
       userMessage: `Draft the reminder. Context:\n\n${JSON.stringify(args, null, 2)}`,
       maxTokens: 600,
+      timeoutMs: 20_000,
     });
     return { ...result, partial: false };
   } catch (e) {

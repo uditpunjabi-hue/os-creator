@@ -101,6 +101,7 @@ export async function adviseOnDeal(args: AdviseArgs): Promise<DealAdvice> {
       systemPrompt: SYSTEM,
       userMessage: `Analyse this deal and return the JSON:\n\n${JSON.stringify(args, null, 2)}`,
       maxTokens: 1200,
+      timeoutMs: 25_000,
     });
     return { ...result, partial: false };
   } catch (e) {

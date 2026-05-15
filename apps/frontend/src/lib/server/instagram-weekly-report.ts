@@ -148,6 +148,9 @@ async function regenerate(orgId: string): Promise<WeeklyReport> {
           systemPrompt: SYSTEM_PROMPT,
           userMessage: `Recap this creator's last 7 days:\n\n${JSON.stringify(payload, null, 2)}`,
           maxTokens: 1400,
+          // 10s default was clipping legit calls and showing the user the
+          // "AI took too long" pill. Route has 60s, give Claude 30.
+          timeoutMs: 30_000,
         });
       } catch (e) {
         console.warn(`Weekly report Claude call failed: ${(e as Error).message}`);
