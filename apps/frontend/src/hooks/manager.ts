@@ -97,6 +97,7 @@ export interface EmailThread {
   starred: boolean;
   updatedAt: string;
   unread: boolean;
+  isBrand: boolean;
 }
 
 export interface InboxTemplate {

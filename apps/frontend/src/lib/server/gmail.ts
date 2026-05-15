@@ -4,11 +4,36 @@ import { getGoogleTokenForOrg } from './google-token';
 
 const GMAIL_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const CACHE_TTL_SECONDS = 5 * 60;
-const BRAND_SEARCH_QUERY =
-  'in:inbox newer_than:90d (subject:collab OR subject:partnership OR ' +
-  'subject:sponsored OR subject:campaign OR subject:ambassador OR ' +
-  'subject:"brand deal" OR subject:"paid promotion" OR ' +
-  '"brand deal" OR "paid partnership" OR "influencer campaign")';
+// We pull the whole recent inbox now, not just brand-keyword matches —
+// users want their full Gmail view with brand emails *highlighted*, not
+// filtered. The Brands tab in the UI re-applies the keyword test on the
+// already-hydrated set so we don't pay extra Gmail API trips.
+const INBOX_QUERY = 'in:inbox newer_than:30d';
+const MAX_THREADS = 50;
+
+// Substrings (lowercase) used to flag a thread as brand-related. Match on
+// either the subject or the snippet/preview — covers cases where the
+// subject is generic ("hi there!") but the body opens with "collab opp".
+const BRAND_KEYWORDS = [
+  'collab',
+  'collaboration',
+  'partnership',
+  'sponsor',
+  'sponsored',
+  'campaign',
+  'ambassador',
+  'brand deal',
+  'paid promotion',
+  'paid partnership',
+  'influencer',
+  'ugc',
+  'gifting',
+  'pr package',
+  'press kit',
+  'media kit',
+  'rate card',
+  'deliverable',
+];
 
 const META_KEY = (orgId: string, threadId: string) => `gmail:meta:${orgId}:${threadId}`;
 const LIST_CACHE_KEY = (orgId: string, q: string) => `gmail:list:${orgId}:${q || '_default'}`;
@@ -40,6 +65,15 @@ export interface EmailThread {
   starred: boolean;
   updatedAt: string;
   unread: boolean;
+  // True when subject + preview contains a brand-collaboration keyword.
+  // Flagged at hydration time so the client tabs can filter in O(n) without
+  // any extra Gmail API calls.
+  isBrand: boolean;
+}
+
+function isBrandThread(subject: string, preview: string): boolean {
+  const haystack = `${subject} ${preview}`.toLowerCase();
+  return BRAND_KEYWORDS.some((kw) => haystack.includes(kw));
 }
 
 export interface ReplyInput {
@@ -109,14 +143,17 @@ export async function listGmailThreads(orgId: string, query?: string): Promise<E
   const conn = await getGoogleTokenForOrg(orgId);
   if (!conn) return [];
 
-  const q = query?.trim() ? `${BRAND_SEARCH_QUERY} ${query.trim()}` : BRAND_SEARCH_QUERY;
+  // Whole inbox + optional free-text search. The Brand / Starred filters are
+  // applied client-side over this set — Gmail's `q=` is for the search bar
+  // only.
+  const q = query?.trim() ? `${INBOX_QUERY} ${query.trim()}` : INBOX_QUERY;
   const cacheKey = LIST_CACHE_KEY(orgId, query?.trim() ?? '');
   const cached = memoryCache.get<EmailThread[]>(cacheKey);
   if (cached) return cached;
 
   try {
     const listRes = await fetch(
-      `${GMAIL_BASE}/threads?maxResults=20&q=${encodeURIComponent(q)}`,
+      `${GMAIL_BASE}/threads?maxResults=${MAX_THREADS}&q=${encodeURIComponent(q)}`,
       { headers: { Authorization: `Bearer ${conn.token}` } }
     );
     if (!listRes.ok) {
@@ -345,6 +382,7 @@ function shape(thread: GmailThreadResponse): EmailThread {
     starred: false,
     updatedAt,
     unread,
+    isBrand: isBrandThread(subject, preview),
   };
 }
 

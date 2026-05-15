@@ -49,9 +49,12 @@ const fmtTime = (s: string) => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
+type InboxFilter = 'all' | 'brands' | 'starred';
+
 export default function InboxPage() {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [filter, setFilter] = useState<InboxFilter>('all');
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query), 250);
     return () => clearTimeout(t);
@@ -66,36 +69,85 @@ export default function InboxPage() {
     [threads, selectedId]
   );
 
-  const unreadCount = (threads ?? []).filter((t) => t.unread).length;
-  const starredCount = (threads ?? []).filter((t) => t.starred).length;
+  // Counts always reflect the full thread list — the tabs only re-slice
+  // it for display so the badge numbers stay stable when switching filters.
+  const all = threads ?? [];
+  const brandCount = all.filter((t) => t.isBrand).length;
+  const starredCount = all.filter((t) => t.starred).length;
+  const unreadCount = all.filter((t) => t.unread).length;
+
+  const filtered = useMemo(() => {
+    if (filter === 'brands') return all.filter((t) => t.isBrand);
+    if (filter === 'starred') return all.filter((t) => t.starred);
+    return all;
+  }, [all, filter]);
+
   // Empty + not-connected = pre-onboarding state; empty + connected = real
   // empty inbox. The CTA only renders on the pre-onboarding branch.
   const showConnectGoogle =
-    !googleConnected && (threads?.length ?? 0) === 0 && !isLoading;
+    !googleConnected && all.length === 0 && !isLoading;
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-col gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-8 lg:py-5">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
-            <InboxIcon className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="text-lg font-semibold text-gray-900">Inbox</div>
-            <div className="text-xs text-gray-500">
-              {unreadCount} unread · {starredCount} starred
+      <header className="flex flex-col gap-3 border-b border-gray-200 bg-white px-4 py-3 lg:px-8 lg:py-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-purple-100 text-purple-700">
+              <InboxIcon className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-lg font-semibold text-gray-900">Inbox</div>
+              <div className="text-xs text-gray-500">
+                {unreadCount} unread · {brandCount} brand · {starredCount} starred
+              </div>
             </div>
           </div>
+          <div className="relative w-full lg:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search subject, sender, body…"
+              className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
+            />
+          </div>
         </div>
-        <div className="relative w-full lg:w-72">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search brand, subject, body…"
-            className="h-11 w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 text-sm placeholder:text-gray-400 focus:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-100"
-          />
+
+        {/* Filter tabs — All / Brands / Starred. The counts are always over
+            the full thread list, so switching filters doesn't change the
+            badge numbers (matches Gmail-style chip behavior). */}
+        <div className="flex gap-1.5 overflow-x-auto">
+          {([
+            { id: 'all', label: 'All', count: all.length },
+            { id: 'brands', label: 'Brands', count: brandCount },
+            { id: 'starred', label: 'Starred', count: starredCount },
+          ] as Array<{ id: InboxFilter; label: string; count: number }>).map((tab) => {
+            const active = filter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilter(tab.id)}
+                className={cn(
+                  'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold transition-colors',
+                  active
+                    ? 'border-purple-600 bg-purple-600 text-white'
+                    : 'border-gray-200 bg-white text-gray-700 hover:border-gray-300'
+                )}
+              >
+                {tab.label}
+                <span
+                  className={cn(
+                    'inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-bold tabular-nums',
+                    active ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-600'
+                  )}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </header>
 
@@ -112,13 +164,19 @@ export default function InboxPage() {
             </div>
           ) : showConnectGoogle ? (
             <ConnectGoogleEmpty />
-          ) : (threads ?? []).length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="px-4 py-12 text-center text-sm text-gray-500">
-              {debounced ? `No threads matching "${debounced}".` : 'No brand emails yet — they’ll show up when brands reach out.'}
+              {debounced
+                ? `No threads matching "${debounced}".`
+                : filter === 'brands'
+                ? 'No brand emails yet — collab / partnership / campaign threads will show up here automatically.'
+                : filter === 'starred'
+                ? 'No starred threads yet. Tap the star on any email to pin it here.'
+                : 'Inbox is empty — recent emails will show up here.'}
             </div>
           ) : (
             <ul className="divide-y divide-gray-100">
-              {(threads ?? []).map((t) => (
+              {filtered.map((t) => (
                 <ThreadRow
                   key={t.id}
                   thread={t}
@@ -166,18 +224,31 @@ function ThreadRow({
         )}
       >
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {thread.unread && <span className="h-2 w-2 rounded-full bg-purple-600" />}
-            {thread.starred && <Star className="h-3 w-3 fill-amber-400 text-amber-400" />}
-            <span className={cn('text-sm', thread.unread ? 'font-semibold text-gray-900' : 'text-gray-700')}>
+          <div className="flex min-w-0 items-center gap-2">
+            {thread.unread && <span className="h-2 w-2 shrink-0 rounded-full bg-purple-600" />}
+            {thread.starred && <Star className="h-3 w-3 shrink-0 fill-amber-400 text-amber-400" />}
+            <span className={cn('truncate text-sm', thread.unread ? 'font-semibold text-gray-900' : 'text-gray-700')}>
               {thread.brand}
             </span>
           </div>
-          <span className="text-xs text-gray-400">{fmtTime(thread.updatedAt)}</span>
+          <span className="shrink-0 text-xs text-gray-400">{fmtTime(thread.updatedAt)}</span>
         </div>
         <div className="line-clamp-1 text-sm text-gray-700">{thread.subject}</div>
         <div className="line-clamp-1 text-xs text-gray-500">{thread.preview}</div>
-        <Badge variant={meta.variant} className="mt-1 w-fit">{meta.label}</Badge>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {/* Brand badge — purple, sits next to the existing status chip so
+              both surfaces of intent are visible on the same row. Only
+              renders when the server flagged the thread as brand-related. */}
+          {thread.isBrand && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-purple-700">
+              <Sparkles className="h-2.5 w-2.5" /> Brand
+            </span>
+          )}
+          {/* Only show the deal-status pill on brand threads. For random
+              non-brand emails (newsletters, receipts, friends) the NEW_LEAD
+              default reads as noise — hide it. */}
+          {thread.isBrand && <Badge variant={meta.variant}>{meta.label}</Badge>}
+        </div>
       </button>
     </li>
   );
