@@ -72,7 +72,12 @@ export async function GET(req: NextRequest) {
     };
     const directPages: Page[] = pagesPayload.data ?? [];
 
-    // step 3c: BM-owned Pages (require business_management scope)
+    // step 3c: BM-owned Pages — best-effort. `business_management` was
+    // dropped from the OAuth scopes (see start/route.ts) so /me/businesses
+    // will normally return an error/empty here. We still try because:
+    //   (a) admins of the FB app itself can call it without the scope, and
+    //   (b) if business_management is later re-added to scopes, this code
+    //       starts working without any other change.
     const bmPages: Page[] = [];
     try {
       const bizRes = await fetch(

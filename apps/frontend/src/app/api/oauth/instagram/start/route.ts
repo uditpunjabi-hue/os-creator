@@ -10,10 +10,14 @@ const META_SCOPES = [
   'instagram_manage_insights',
   'pages_show_list',
   'pages_read_engagement',
-  // business_management is required to enumerate Pages owned by a Business
-  // Manager via /me/businesses/{id}/owned_pages — without it, BM-owned
-  // Pages do NOT appear in /me/accounts even when the user is an admin.
-  'business_management',
+  // NOTE: `business_management` was removed so Login works for everyone on
+  // a Live Meta app without going through App Review for Advanced Access.
+  // Trade-off: if the user's IG Business/Creator account is connected to a
+  // Page that is OWNED by a Business Manager (vs. directly admin'd by the
+  // user), that Page won't appear in /me/accounts and the callback will
+  // show the "no IG business linked" message. For personal-account creators
+  // and standard Page admins, login works normally. Re-add this scope after
+  // App Review if BM-owned Pages need to be supported.
 ];
 
 export async function GET(req: NextRequest) {
