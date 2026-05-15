@@ -6,8 +6,8 @@ import { withErrorHandling } from '@gitroom/frontend/lib/server/api';
 export const runtime = 'nodejs';
 
 export const GET = withErrorHandling(async (req: NextRequest) => {
-  const { org } = await getAuth();
+  const { user } = await getAuth();
   const q = req.nextUrl.searchParams.get('q') ?? undefined;
-  const threads = await listGmailThreads(org.id, q);
+  const threads = await listGmailThreads(user.id, q);
   return NextResponse.json(threads);
 });

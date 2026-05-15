@@ -1,6 +1,6 @@
 import 'server-only';
 import { memoryCache } from './memory-cache';
-import { getGoogleTokenForOrg } from './google-token';
+import { getValidGoogleAccessToken } from './google-token';
 
 const GMAIL_BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
 const CACHE_TTL_SECONDS = 5 * 60;
@@ -35,9 +35,11 @@ const BRAND_KEYWORDS = [
   'deliverable',
 ];
 
-const META_KEY = (orgId: string, threadId: string) => `gmail:meta:${orgId}:${threadId}`;
-const LIST_CACHE_KEY = (orgId: string, q: string) => `gmail:list:${orgId}:${q || '_default'}`;
-const THREAD_CACHE_KEY = (orgId: string, threadId: string) => `gmail:thread:${orgId}:${threadId}`;
+// Cache keys are scoped by userId so two users in the same org never see
+// each other's inbox — Gmail data is per-account, not per-organisation.
+const META_KEY = (userId: string, threadId: string) => `gmail:meta:${userId}:${threadId}`;
+const LIST_CACHE_KEY = (userId: string, q: string) => `gmail:list:${userId}:${q || '_default'}`;
+const THREAD_CACHE_KEY = (userId: string, threadId: string) => `gmail:thread:${userId}:${threadId}`;
 
 export type ThreadStatus =
   | 'NEW_LEAD'
@@ -139,22 +141,22 @@ const SAMPLE_TEMPLATES = [
   },
 ];
 
-export async function listGmailThreads(orgId: string, query?: string): Promise<EmailThread[]> {
-  const conn = await getGoogleTokenForOrg(orgId);
-  if (!conn) return [];
+export async function listGmailThreads(userId: string, query?: string): Promise<EmailThread[]> {
+  const token = await getValidGoogleAccessToken(userId);
+  if (!token) return [];
 
   // Whole inbox + optional free-text search. The Brand / Starred filters are
   // applied client-side over this set — Gmail's `q=` is for the search bar
   // only.
   const q = query?.trim() ? `${INBOX_QUERY} ${query.trim()}` : INBOX_QUERY;
-  const cacheKey = LIST_CACHE_KEY(orgId, query?.trim() ?? '');
+  const cacheKey = LIST_CACHE_KEY(userId, query?.trim() ?? '');
   const cached = memoryCache.get<EmailThread[]>(cacheKey);
   if (cached) return cached;
 
   try {
     const listRes = await fetch(
       `${GMAIL_BASE}/threads?maxResults=${MAX_THREADS}&q=${encodeURIComponent(q)}`,
-      { headers: { Authorization: `Bearer ${conn.token}` } }
+      { headers: { Authorization: `Bearer ${token}` } }
     );
     if (!listRes.ok) {
       console.warn(`Gmail list failed (${listRes.status}): ${(await listRes.text()).slice(0, 200)}`);
@@ -170,7 +172,7 @@ export async function listGmailThreads(orgId: string, query?: string): Promise<E
     for (let i = 0; i < ids.length; i += 5) {
       const slice = ids.slice(i, i + 5);
       const hydrated = await Promise.all(
-        slice.map((id) => fetchAndShapeThread(orgId, id, conn.token))
+        slice.map((id) => fetchAndShapeThread(userId, id, token))
       );
       for (const t of hydrated) if (t) threads.push(t);
     }
@@ -183,21 +185,21 @@ export async function listGmailThreads(orgId: string, query?: string): Promise<E
   }
 }
 
-export async function getGmailThread(orgId: string, threadId: string): Promise<EmailThread | null> {
-  const conn = await getGoogleTokenForOrg(orgId);
-  if (!conn) return null;
-  return fetchAndShapeThread(orgId, threadId, conn.token);
+export async function getGmailThread(userId: string, threadId: string): Promise<EmailThread | null> {
+  const token = await getValidGoogleAccessToken(userId);
+  if (!token) return null;
+  return fetchAndShapeThread(userId, threadId, token);
 }
 
 export async function replyGmail(
-  orgId: string,
+  userId: string,
   threadId: string,
   body: ReplyInput
 ): Promise<EmailThread | null> {
-  const conn = await getGoogleTokenForOrg(orgId);
-  if (!conn) return null;
+  const token = await getValidGoogleAccessToken(userId);
+  if (!token) return null;
 
-  const thread = await fetchAndShapeThread(orgId, threadId, conn.token);
+  const thread = await fetchAndShapeThread(userId, threadId, token);
   if (!thread) return null;
 
   const lastMessage = thread.messages[thread.messages.length - 1];
@@ -224,7 +226,7 @@ export async function replyGmail(
     const sendRes = await fetch(`${GMAIL_BASE}/messages/send`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${conn.token}`,
+        Authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify({ raw: encoded, threadId }),
@@ -238,29 +240,29 @@ export async function replyGmail(
     return null;
   }
 
-  memoryCache.del(THREAD_CACHE_KEY(orgId, threadId));
-  memoryCache.delPattern(`gmail:list:${orgId}:*`);
-  return fetchAndShapeThread(orgId, threadId, conn.token);
+  memoryCache.del(THREAD_CACHE_KEY(userId, threadId));
+  memoryCache.delPattern(`gmail:list:${userId}:*`);
+  return fetchAndShapeThread(userId, threadId, token);
 }
 
 export async function setGmailStatus(
-  orgId: string,
+  userId: string,
   threadId: string,
   status: ThreadStatus
 ): Promise<EmailThread | null> {
-  const meta = readMeta(orgId, threadId);
-  writeMeta(orgId, threadId, { ...meta, status });
-  return getGmailThread(orgId, threadId);
+  const meta = readMeta(userId, threadId);
+  writeMeta(userId, threadId, { ...meta, status });
+  return getGmailThread(userId, threadId);
 }
 
 export async function setGmailStarred(
-  orgId: string,
+  userId: string,
   threadId: string,
   starred: boolean
 ): Promise<EmailThread | null> {
-  const meta = readMeta(orgId, threadId);
-  writeMeta(orgId, threadId, { ...meta, starred });
-  return getGmailThread(orgId, threadId);
+  const meta = readMeta(userId, threadId);
+  writeMeta(userId, threadId, { ...meta, starred });
+  return getGmailThread(userId, threadId);
 }
 
 export function listGmailTemplates() {
@@ -274,11 +276,11 @@ export function listGmailTemplates() {
  * message accordingly.
  */
 export async function sendGmailEmail(
-  orgId: string,
+  userId: string,
   args: { to: string; subject: string; body: string }
 ): Promise<boolean> {
-  const conn = await getGoogleTokenForOrg(orgId);
-  if (!conn) return false;
+  const token = await getValidGoogleAccessToken(userId);
+  if (!token) return false;
 
   const raw = [
     `To: ${args.to}`,
@@ -297,7 +299,7 @@ export async function sendGmailEmail(
     const res = await fetch(`${GMAIL_BASE}/messages/send`, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${conn.token}`,
+        Authorization: `Bearer ${token}`,
         'content-type': 'application/json',
       },
       body: JSON.stringify({ raw: encoded }),
@@ -318,14 +320,14 @@ export async function sendGmailEmail(
 // =========================================================================
 
 async function fetchAndShapeThread(
-  orgId: string,
+  userId: string,
   threadId: string,
   token: string
 ): Promise<EmailThread | null> {
-  const cacheKey = THREAD_CACHE_KEY(orgId, threadId);
+  const cacheKey = THREAD_CACHE_KEY(userId, threadId);
   const cached = memoryCache.get<EmailThread>(cacheKey);
   if (cached) {
-    const meta = readMeta(orgId, threadId);
+    const meta = readMeta(userId, threadId);
     return { ...cached, status: meta.status, starred: meta.starred };
   }
 
@@ -340,7 +342,7 @@ async function fetchAndShapeThread(
   if (!t.messages?.length) return null;
 
   const shaped = shape(t);
-  const meta = readMeta(orgId, threadId);
+  const meta = readMeta(userId, threadId);
   const out: EmailThread = { ...shaped, status: meta.status, starred: meta.starred };
   memoryCache.set(cacheKey, shaped, CACHE_TTL_SECONDS);
   return out;
@@ -386,9 +388,9 @@ function shape(thread: GmailThreadResponse): EmailThread {
   };
 }
 
-function readMeta(orgId: string, threadId: string) {
+function readMeta(userId: string, threadId: string) {
   const parsed = memoryCache.get<{ status?: ThreadStatus; starred?: boolean }>(
-    META_KEY(orgId, threadId)
+    META_KEY(userId, threadId)
   );
   return {
     status: parsed?.status ?? ('NEW_LEAD' as ThreadStatus),
@@ -397,11 +399,11 @@ function readMeta(orgId: string, threadId: string) {
 }
 
 function writeMeta(
-  orgId: string,
+  userId: string,
   threadId: string,
   meta: { status: ThreadStatus; starred: boolean }
 ) {
-  memoryCache.set(META_KEY(orgId, threadId), meta);
+  memoryCache.set(META_KEY(userId, threadId), meta);
 }
 
 function headerValue(headers: Array<{ name: string; value: string }>, key: string): string | undefined {

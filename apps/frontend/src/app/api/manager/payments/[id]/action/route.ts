@@ -18,7 +18,7 @@ interface ActionBody {
 
 export const POST = withErrorHandling(
   async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
-    const { org } = await getAuth();
+    const { user, org } = await getAuth();
     const { id } = await ctx.params;
     const body = (await req.json().catch(() => ({}))) as ActionBody;
 
@@ -58,7 +58,7 @@ export const POST = withErrorHandling(
       if (!recipient) {
         return errorResponse(400, 'No email on file for this payment recipient');
       }
-      const ok = await sendGmailEmail(org.id, {
+      const ok = await sendGmailEmail(user.id, {
         to: recipient,
         subject,
         body: text,

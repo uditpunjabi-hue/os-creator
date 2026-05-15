@@ -15,13 +15,13 @@ const STATUSES: ThreadStatus[] = [
 
 export const PATCH = withErrorHandling(
   async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
-    const { org } = await getAuth();
+    const { user } = await getAuth();
     const { id } = await ctx.params;
     const body = (await req.json().catch(() => ({}))) as { status?: ThreadStatus };
     if (!body.status || !STATUSES.includes(body.status)) {
       return errorResponse(400, `status must be one of ${STATUSES.join(', ')}`);
     }
-    const t = await setGmailStatus(org.id, id, body.status);
+    const t = await setGmailStatus(user.id, id, body.status);
     if (!t) return errorResponse(404, 'Thread not found');
     return NextResponse.json(t);
   }
