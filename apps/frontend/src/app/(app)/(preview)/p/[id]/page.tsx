@@ -15,7 +15,7 @@ import { RenderPreviewDateClient } from '@gitroom/frontend/components/preview/re
 
 dayjs.extend(utc);
 export const metadata: Metadata = {
-  title: `os-creator Preview`,
+  title: `Illuminati Preview`,
   description: '',
 };
 export default async function Auth(
@@ -57,10 +57,10 @@ export default async function Auth(
                 >
                   <div className="max-w-[55px]">
                     <SafeImage
-                      src={'/os-creator.svg'}
+                      src={'/illuminati-logo.png'}
                       width={55}
                       height={55}
-                      alt="Logo"
+                      alt="Illuminati"
                     />
                   </div>
                   <div>

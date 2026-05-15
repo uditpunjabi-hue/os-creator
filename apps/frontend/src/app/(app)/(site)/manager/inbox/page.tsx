@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   Inbox as InboxIcon,
   Search,
@@ -60,18 +61,18 @@ export default function InboxPage() {
     return () => clearTimeout(t);
   }, [query]);
 
-  const { data: threads, isLoading } = useInboxThreads(debounced);
+  const { data: inboxRes, isLoading } = useInboxThreads(debounced);
   const { data: profile } = useManagerProfile();
   const googleConnected = profile?.connections.google.connected ?? false;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const all = inboxRes?.threads ?? [];
+  const inboxStatus = inboxRes?.status ?? 'ok';
   const selected = useMemo(
-    () => threads?.find((t) => t.id === selectedId) ?? null,
-    [threads, selectedId]
+    () => all.find((t) => t.id === selectedId) ?? null,
+    [all, selectedId]
   );
 
-  // Counts always reflect the full thread list — the tabs only re-slice
-  // it for display so the badge numbers stay stable when switching filters.
-  const all = threads ?? [];
   const brandCount = all.filter((t) => t.isBrand).length;
   const starredCount = all.filter((t) => t.starred).length;
   const unreadCount = all.filter((t) => t.unread).length;
@@ -82,10 +83,14 @@ export default function InboxPage() {
     return all;
   }, [all, filter]);
 
-  // Empty + not-connected = pre-onboarding state; empty + connected = real
-  // empty inbox. The CTA only renders on the pre-onboarding branch.
+  // Three distinct empty states:
+  //  - Google not connected at all → "Connect Google" CTA (existing)
+  //  - Google was connected but the token's stale → "Reconnect Google" CTA
+  //  - Connected + token good + no mail → "Inbox is empty" copy
   const showConnectGoogle =
-    !googleConnected && all.length === 0 && !isLoading;
+    !isLoading && (inboxStatus === 'not_connected' || !googleConnected) && all.length === 0;
+  const showReconnectGoogle =
+    !isLoading && inboxStatus === 'token_invalid';
 
   return (
     <div className="flex h-full flex-col">
@@ -158,10 +163,12 @@ export default function InboxPage() {
             selected ? 'hidden lg:block' : 'block'
           )}
         >
-          {isLoading && !threads ? (
+          {isLoading && !inboxRes ? (
             <div className="p-4">
               <SkeletonList count={6} />
             </div>
+          ) : showReconnectGoogle ? (
+            <ReconnectGoogleEmpty />
           ) : showConnectGoogle ? (
             <ConnectGoogleEmpty />
           ) : filtered.length === 0 ? (
@@ -498,6 +505,53 @@ function ThreadView({ thread, onBack }: { thread: EmailThread; onBack: () => voi
 // Friendly pre-onboarding state for users who haven't connected Google yet.
 // The Inbox + AI Reply features need Gmail; everything else in Manager works
 // fine without it, so the CTA is informative, not blocking.
+function ReconnectGoogleEmpty() {
+  const fetch = useFetch();
+  const { backendUrl } = useVariables();
+  // Disconnect first so the next Google OAuth start screen forces fresh
+  // consent + a fresh refresh token. Awaiting matters — the route's
+  // Set-Cookie cleanup has to land before we leave for the OAuth dance.
+  const reconnect = async () => {
+    try {
+      await fetch('/manager/settings/disconnect/google', { method: 'POST' });
+    } catch {
+      // Continue regardless; reconnect flow will overwrite stale tokens.
+    }
+    window.location.href = `${backendUrl}/oauth/google/start`;
+  };
+  return (
+    <div className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-rose-700">
+        <Mail className="h-6 w-6" />
+      </div>
+      <div>
+        <div className="text-base font-semibold text-gray-900">
+          Unable to load emails — reconnect Google
+        </div>
+        <p className="mx-auto mt-1 max-w-sm text-sm text-gray-600">
+          Your Google session has expired or been revoked. Reconnecting takes
+          ~10 seconds and pulls your inbox back in. The rest of the app is
+          unaffected.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={reconnect}
+        className="inline-flex h-11 items-center gap-1.5 rounded-full bg-purple-600 px-4 text-sm font-semibold text-white hover:bg-purple-700"
+      >
+        Reconnect Google
+        <ArrowRight className="h-4 w-4" />
+      </button>
+      <Link
+        href="/manager/settings"
+        className="text-[11px] text-gray-500 hover:text-gray-700"
+      >
+        Manage account in Settings →
+      </Link>
+    </div>
+  );
+}
+
 function ConnectGoogleEmpty() {
   const { backendUrl } = useVariables();
   return (

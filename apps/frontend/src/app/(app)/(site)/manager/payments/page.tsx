@@ -25,6 +25,7 @@ import {
   useManagerMutations,
   usePayments,
   usePaymentSummary,
+  useRateCard,
   type PaymentRow,
   type PaymentStatusKey,
 } from '@gitroom/frontend/hooks/manager';
@@ -40,7 +41,10 @@ const statusMeta: Record<
   OVERDUE: { label: 'Overdue', variant: 'destructive' },
 };
 
-const fmt = (n: number, c = '$') => `${c}${Math.round(n).toLocaleString()}`;
+const CURRENCY_SYMBOL: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£' };
+const symbolFor = (code: string | null | undefined): string =>
+  (code && CURRENCY_SYMBOL[code]) || code || '₹';
+const fmt = (n: number, c = '₹') => `${c}${Math.round(n).toLocaleString()}`;
 const fmtDate = (s: string | null) => {
   if (!s) return '—';
   const d = new Date(s);
@@ -51,8 +55,10 @@ export default function PaymentsPage() {
   const { data: payments, isLoading } = usePayments();
   const { data: summary } = usePaymentSummary();
   const { data: influencers } = useInfluencers();
+  const { data: rateCard } = useRateCard();
   const { paymentAction, deletePayment } = useManagerMutations();
   const [addOpen, setAddOpen] = useState(false);
+  const sym = symbolFor(rateCard?.currency ?? 'INR');
   // Payment being reminded — opens the AI-drafted reminder modal.
   const [reminderPayment, setReminderPayment] = useState<PaymentRow | null>(null);
 
@@ -110,7 +116,7 @@ export default function PaymentsPage() {
                     <Icon className="h-4 w-4" />
                   </div>
                 </div>
-                <div className="mt-3 text-2xl font-semibold text-gray-900">{fmt(s.value)}</div>
+                <div className="mt-3 text-2xl font-semibold text-gray-900">{fmt(s.value, sym)}</div>
                 <div className="mt-1 text-xs text-gray-400">{s.sub}</div>
               </div>
             );
@@ -233,7 +239,7 @@ function PaymentRowItem({
         </div>
         <div className="flex flex-col items-end gap-1 lg:flex-row lg:items-center lg:gap-0 lg:col-start-3">
           <div className="text-sm font-semibold text-gray-900">
-            {fmt(payment.amount, payment.currency === 'USD' ? '$' : `${payment.currency} `)}
+            {fmt(payment.amount, symbolFor(payment.currency))}
           </div>
         </div>
         <div className="hidden text-sm text-gray-500 lg:block">{fmtDate(payment.dueAt)}</div>
@@ -546,7 +552,7 @@ function ReminderDraftSheet({
               <Sparkles className="h-3 w-3" /> AI payment reminder
             </div>
             <div className="truncate text-sm font-semibold text-gray-900">
-              {payment.brand} · {fmt(payment.amount, payment.currency === 'USD' ? '$' : `${payment.currency} `)}
+              {payment.brand} · {fmt(payment.amount, symbolFor(payment.currency))}
             </div>
             <div className="truncate text-[11px] text-gray-500">
               {payment.influencer?.name ?? '—'}

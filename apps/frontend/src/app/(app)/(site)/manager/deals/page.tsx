@@ -36,6 +36,7 @@ import {
   useDeals,
   useInfluencers,
   useManagerMutations,
+  useRateCard,
   type DealAdvice,
   type DealRow,
   type DealStageKey,
@@ -51,13 +52,24 @@ const stages: { key: DealStageKey; label: string; accent: string }[] = [
   { key: 'COMPLETED', label: 'Done', accent: 'bg-green-100 text-green-700' },
 ];
 
-const fmt = (n: number | null) =>
-  n == null ? '—' : `$${Math.round(n).toLocaleString()}`;
+// Currency symbol comes from the org's RateCard so every page in the
+// product reads the same setting (default ₹ for INR). The number-format is
+// kept in one helper so adding new amount surfaces stays consistent.
+const CURRENCY_SYMBOL: Record<string, string> = {
+  INR: '₹',
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+};
+const fmtAmount = (n: number | null, sym: string) =>
+  n == null ? '—' : `${sym}${Math.round(n).toLocaleString()}`;
 
 export default function DealsPage() {
   const { data, isLoading } = useDeals();
   const { data: influencers } = useInfluencers();
+  const { data: rateCard } = useRateCard();
   const { createDeal, moveDealStage } = useManagerMutations();
+  const sym = CURRENCY_SYMBOL[rateCard?.currency ?? 'INR'] ?? '₹';
 
   const [optimistic, setOptimistic] = useState<DealRow[] | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -132,7 +144,7 @@ export default function DealsPage() {
         <div>
           <div className="text-lg font-semibold text-gray-900">Deals</div>
           <div className="text-xs text-gray-500">
-            {rows.length} active · {fmt(totalValue)} pipeline value
+            {rows.length} active · {fmtAmount(totalValue, sym)} pipeline value
           </div>
         </div>
         <Button
@@ -205,13 +217,14 @@ export default function DealsPage() {
                   deals={byStage[stage.key]}
                   activeId={activeId}
                   onOpenDeal={setDetailDealId}
+                  sym={sym}
                 />
               ))}
             </div>
           )}
         </div>
 
-        <DragOverlay>{activeDeal ? <DealCard deal={activeDeal} dragging /> : null}</DragOverlay>
+        <DragOverlay>{activeDeal ? <DealCard deal={activeDeal} sym={sym} dragging /> : null}</DragOverlay>
       </DndContext>
 
       <AddDealModal
@@ -227,6 +240,7 @@ export default function DealsPage() {
       {detailDealId && (
         <DealDetailSheet
           deal={rows.find((d) => d.id === detailDealId) ?? null}
+          sym={sym}
           onClose={() => setDetailDealId(null)}
         />
       )}
@@ -239,11 +253,13 @@ function KanbanColumn({
   deals,
   activeId,
   onOpenDeal,
+  sym,
 }: {
   stage: { key: DealStageKey; label: string; accent: string };
   deals: DealRow[];
   activeId: string | null;
   onOpenDeal: (id: string) => void;
+  sym: string;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.key });
   return (
@@ -268,7 +284,7 @@ function KanbanColumn({
         )}
       >
         {deals.map((d) => (
-          <SortableDealCard key={d.id} deal={d} hidden={activeId === d.id} onOpen={onOpenDeal} />
+          <SortableDealCard key={d.id} deal={d} sym={sym} hidden={activeId === d.id} onOpen={onOpenDeal} />
         ))}
         {deals.length === 0 && (
           <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-xs text-gray-400">
@@ -282,10 +298,12 @@ function KanbanColumn({
 
 function SortableDealCard({
   deal,
+  sym,
   hidden,
   onOpen,
 }: {
   deal: DealRow;
+  sym: string;
   hidden?: boolean;
   onOpen?: (id: string) => void;
 }) {
@@ -299,18 +317,20 @@ function SortableDealCard({
   };
   return (
     <div ref={setNodeRef} style={style} {...attributes}>
-      <DealCard deal={deal} listeners={listeners} onOpen={onOpen} />
+      <DealCard deal={deal} sym={sym} listeners={listeners} onOpen={onOpen} />
     </div>
   );
 }
 
 function DealCard({
   deal,
+  sym,
   dragging,
   listeners,
   onOpen,
 }: {
   deal: DealRow;
+  sym: string;
   dragging?: boolean;
   listeners?: any;
   onOpen?: (id: string) => void;
@@ -337,14 +357,14 @@ function DealCard({
               {deal.influencer?.name ?? '—'}
             </div>
           </div>
-          <div className="flex items-center gap-1 text-base font-semibold text-purple-700">
-            <DollarSign className="h-3.5 w-3.5" />
+          <div className="text-base font-semibold text-purple-700">
+            {sym}
             {Math.round(deal.offer).toLocaleString()}
           </div>
         </div>
         <div className="flex items-center justify-between text-[11px] text-gray-400">
-          <span>Floor {fmt(deal.floor)}</span>
-          <span>Ceiling {fmt(deal.ceiling)}</span>
+          <span>Floor {fmtAmount(deal.floor, sym)}</span>
+          <span>Ceiling {fmtAmount(deal.ceiling, sym)}</span>
         </div>
       </button>
       {listeners && (
@@ -533,9 +553,11 @@ function FieldGroup({ label, children }: { label: string; children: React.ReactN
 
 function DealDetailSheet({
   deal,
+  sym,
   onClose,
 }: {
   deal: DealRow | null;
+  sym: string;
   onClose: () => void;
 }) {
   const { fetchDealAdvice, moveDealStage, deleteDeal } = useManagerMutations();
@@ -619,9 +641,9 @@ function DealDetailSheet({
         <div className="flex-1 overflow-y-auto px-4 py-4">
           <div className="flex flex-col gap-4">
             <div className="grid grid-cols-3 gap-2">
-              <PriceTile label="Offer" value={deal.offer} accent="text-purple-700" />
-              <PriceTile label="Floor" value={deal.floor} />
-              <PriceTile label="Ceiling" value={deal.ceiling} />
+              <PriceTile label="Offer" value={deal.offer} sym={sym} accent="text-purple-700" />
+              <PriceTile label="Floor" value={deal.floor} sym={sym} />
+              <PriceTile label="Ceiling" value={deal.ceiling} sym={sym} />
             </div>
 
             <div className="rounded-2xl border border-gray-200 bg-white p-3">
@@ -715,7 +737,7 @@ function DealDetailSheet({
                           Suggested counter
                         </div>
                         <div className="text-base font-bold text-gray-900">
-                          ₹{advice.counterOffer.toLocaleString()}
+                          {sym}{advice.counterOffer.toLocaleString()}
                         </div>
                       </div>
                     )}
@@ -780,16 +802,18 @@ function DealDetailSheet({
 function PriceTile({
   label,
   value,
+  sym,
   accent,
 }: {
   label: string;
   value: number | null;
+  sym: string;
   accent?: string;
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-3">
       <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
-      <div className={cn('mt-0.5 text-base font-bold text-gray-900', accent)}>{fmt(value)}</div>
+      <div className={cn('mt-0.5 text-base font-bold text-gray-900', accent)}>{fmtAmount(value, sym)}</div>
     </div>
   );
 }

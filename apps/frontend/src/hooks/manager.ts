@@ -258,10 +258,25 @@ export const useContracts = () => {
   return useSWR<ContractRow[]>('/manager/contracts', load);
 };
 
+export type InboxStatus = 'ok' | 'not_connected' | 'token_invalid';
+export interface InboxResponse {
+  status: InboxStatus;
+  threads: EmailThread[];
+}
+
+// The server returns { status, threads } now. We normalise here so every
+// consumer sees the same shape regardless of which deploy the response was
+// produced by (legacy bare-array responses are wrapped on read).
 export const useInboxThreads = (query: string) => {
   const load = useJsonLoader();
   const key = query ? `/manager/inbox/threads?q=${encodeURIComponent(query)}` : '/manager/inbox/threads';
-  return useSWR<EmailThread[]>(key, load);
+  const res = useSWR<InboxResponse | EmailThread[]>(key, load);
+  const normalised: InboxResponse | undefined = res.data
+    ? Array.isArray(res.data)
+      ? { status: 'ok', threads: res.data }
+      : res.data
+    : undefined;
+  return { ...res, data: normalised };
 };
 
 export const useInboxTemplates = () => {
